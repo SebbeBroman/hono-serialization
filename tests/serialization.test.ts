@@ -1,6 +1,7 @@
 import { uneval } from 'devalue'
 import { Hono } from 'hono'
 import { hc } from 'hono/client'
+import { deserialize as serovalDeserialize, serialize as serovalSerialize } from 'seroval'
 import { stringify as superjsonStringify, parse as superjsonParse } from 'superjson'
 import { describe, expect, test } from 'vitest'
 import { createClient } from '../src/client'
@@ -292,6 +293,32 @@ describe('uneval-style json output', () => {
     })
     const res = await client.item.$get()
     expect(res.headers.get('content-type')).toMatch(/javascript/)
+    const data = await res.json()
+    expect(data.createdAt).toBeInstanceOf(Date)
+    expect(data.createdAt.toISOString()).toBe(date.toISOString())
+  })
+})
+
+describe('string serializer with private contentType', () => {
+  const custom = defineSerializer({
+    name: 'seroval',
+    json: {
+      serialize: serovalSerialize,
+      parse: serovalDeserialize,
+      contentType: 'application/seroval',
+    },
+  })
+  const t = serialization(custom)
+  const app = new Hono()
+    .use(t)
+    .get('/item', (c) => t.json(c, { createdAt: date }))
+
+  test('round-trips as text despite non-textual contentType', async () => {
+    const client = createClient<typeof app>('http://localhost', custom, {
+      fetch: app.request as typeof fetch,
+    })
+    const res = await client.item.$get()
+    expect(res.headers.get('content-type')).toMatch(/application\/seroval/)
     const data = await res.json()
     expect(data.createdAt).toBeInstanceOf(Date)
     expect(data.createdAt.toISOString()).toBe(date.toISOString())

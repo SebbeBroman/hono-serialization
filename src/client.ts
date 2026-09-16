@@ -5,7 +5,6 @@ import {
   DEFAULT_HEADER,
   isHtmlCt,
   isJsonCt,
-  isTextualCt,
   resolve,
   resolveInput,
   toBytes,
@@ -18,10 +17,9 @@ export type { Serializer } from './types'
 
 type AnyClient = Record<string | symbol, unknown>
 
-const decode = async (res: Response, slot: FormatSerializer, text: () => Promise<string>, buf: () => Promise<ArrayBuffer>) => {
+const decode = async (slot: FormatSerializer, text: () => Promise<string>, buf: () => Promise<ArrayBuffer>) => {
   const r = resolve(slot, undefined)
-  const ct = res.headers.get('content-type') ?? ''
-  return r.binary || !isTextualCt(ct) ? r.parse(toBytes(await buf())) : r.parse(await text())
+  return r.binary ? r.parse(toBytes(await buf())) : r.parse(await text())
 }
 
 const wrapResponse = (res: Response, serializer: Serializer, header: string): Response => {
@@ -36,7 +34,7 @@ const wrapResponse = (res: Response, serializer: Serializer, header: string): Re
       if (prop === 'json') {
         return async () =>
           matched() && serializer.json
-            ? decode(res, serializer.json, getText, getBuf)
+            ? decode(serializer.json, getText, getBuf)
             : JSON.parse(await getText())
       }
       if (prop === 'text') {
@@ -45,8 +43,8 @@ const wrapResponse = (res: Response, serializer: Serializer, header: string): Re
           if (!matched()) return raw
           const ct = target.headers.get('content-type') ?? ''
           if (isJsonCt(ct)) return raw
-          if (serializer.html && isHtmlCt(ct)) return String(await decode(res, serializer.html, getText, getBuf))
-          if (serializer.text) return String(await decode(res, serializer.text, getText, getBuf))
+          if (serializer.html && isHtmlCt(ct)) return String(await decode(serializer.html, getText, getBuf))
+          if (serializer.text) return String(await decode(serializer.text, getText, getBuf))
           return raw
         }
       }

@@ -56,16 +56,6 @@ export const isHtmlCt = (ct: string): boolean => {
   return m === 'text/html' || m.endsWith('+html')
 }
 
-export const isTextualCt = (ct: string): boolean => {
-  const m = mimeOf(ct)
-  return (
-    m.includes('json') ||
-    m.startsWith('text/') ||
-    m === 'application/javascript' ||
-    m === 'text/javascript'
-  )
-}
-
 export const toBytes = (body: ArrayBuffer | Uint8Array): Uint8Array =>
   body instanceof Uint8Array ? body : new Uint8Array(body)
 
