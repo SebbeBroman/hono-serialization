@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { createRequire } from 'node:module'
 import { Hono } from 'hono'
 import SuperJSON from 'superjson'
 import { serialization } from 'hono-serialization'
@@ -10,16 +9,6 @@ import { createClient } from 'hono-serialization/client'
 assert.match(
   import.meta.resolve('hono-serialization'),
   /node_modules\/hono-serialization\//,
-)
-const require = createRequire(import.meta.url)
-assert.equal(typeof require('hono-serialization').serialization, 'function')
-assert.equal(
-  typeof require('hono-serialization/client').createClient,
-  'function',
-)
-assert.equal(
-  typeof require('hono-serialization/codec').defineSerializer,
-  'function',
 )
 const date = new Date('2024-01-01T00:00:00Z')
 const codec = defineSerializer({
@@ -86,9 +75,7 @@ try {
   const plain = await fetch(`${url}/item`)
   assert.deepEqual(await plain.json(), { date: date.toISOString() })
   assert.match(plain.headers.get('vary'), /x-hono-serialization/)
-  console.log(
-    'Installed ESM/CJS exports and real HTTP GET/POST round trips pass',
-  )
+  console.log('Installed ESM exports and real HTTP GET/POST round trips pass')
 } finally {
   server.closeAllConnections()
   await new Promise((resolve) => server.close(resolve))

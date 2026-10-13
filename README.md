@@ -10,7 +10,7 @@ A client sends `x-hono-serialization: <name>`. The middleware encodes matching r
 npm install hono-serialization hono
 ```
 
-Peer dependency: Hono `^4.13.13`. ESM and CommonJS are supported.
+Peer dependency: Hono `^4.13.13`. The package is ESM-only.
 
 ## Quick start
 
@@ -185,6 +185,6 @@ npm run check:package
 npm run check:release
 ```
 
-Typechecking includes positive and negative RPC assertions and dependency declarations. Publishing runs the full release check, including typechecking, tests, ESM/CJS builds, package-boundary checks, and installed tarball tests over real HTTP.
+Typechecking includes positive and negative RPC assertions and dependency declarations. Publishing runs the full release check, including typechecking, tests, ESM builds, package-boundary checks, and installed tarball tests over real HTTP.
 
 See [CHANGELOG.md](CHANGELOG.md) for migration notes.

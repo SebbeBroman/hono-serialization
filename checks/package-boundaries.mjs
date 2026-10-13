@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url))
-for (const entry of ['client.js', 'client.cjs', 'codec.js', 'codec.cjs']) {
+for (const entry of ['client.js', 'codec.js']) {
   const seen = new Set()
   async function inspect(path) {
     if (seen.has(path)) return
@@ -16,7 +16,7 @@ for (const entry of ['client.js', 'client.cjs', 'codec.js', 'codec.cjs']) {
       `${entry} includes server implementation`,
     )
     for (const match of source.matchAll(
-      /\b(?:from\s*|import\s*|require\s*\(\s*)['"]([^'"]+)['"]/g,
+      /\b(?:from\s*|import\s*)['"]([^'"]+)['"]/g,
     )) {
       const specifier = match[1]
       if (specifier.startsWith('.')) {
@@ -38,4 +38,4 @@ for (const entry of ['client.js', 'client.cjs', 'codec.js', 'codec.cjs']) {
   }
   await inspect(resolve(dist, entry))
 }
-console.log('Client and codec package boundaries pass for ESM and CommonJS')
+console.log('Client and codec package boundaries pass for ESM')

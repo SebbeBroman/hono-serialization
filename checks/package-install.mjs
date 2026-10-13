@@ -39,16 +39,13 @@ try {
     'CHANGELOG.md',
     'package.json',
     'dist/index.js',
-    'dist/index.cjs',
     'dist/client.js',
-    'dist/client.cjs',
     'dist/codec.js',
-    'dist/codec.cjs',
   ])
     assert.ok(paths.includes(required), `Missing package file: ${required}`)
   for (const path of paths)
     assert.ok(
-      path.startsWith('dist/') ||
+      (path.startsWith('dist/') && /\.(?:js(?:\.map)?|d\.ts)$/.test(path)) ||
         ['LICENSE', 'README.md', 'CHANGELOG.md', 'package.json'].includes(path),
       `Unexpected package file: ${path}`,
     )
@@ -81,25 +78,6 @@ try {
     join(temporary, 'consumer.ts'),
   )
   await writeFile(
-    join(temporary, 'consumer.cts'),
-    `import { Hono } from 'hono'
-import { serialization } from 'hono-serialization'
-import { defineSerializer } from 'hono-serialization/codec'
-import { createClient } from 'hono-serialization/client'
-const codec = defineSerializer({ name: 'json', json: { output: 'json', serialize: JSON.stringify, parse: JSON.parse } })
-const s = serialization(codec)
-const app = new Hono().use(s).get('/item', c => s.json(c, { date: new Date() }, 201))
-const client = createClient<typeof app>('http://localhost', codec)
-async function check() {
-  const response = await client.item.$get()
-  const status: 201 = response.status
-  const date: string = (await response.json()).date
-  void [status, date]
-}
-void check
-`,
-  )
-  await writeFile(
     join(temporary, 'tsconfig.json'),
     JSON.stringify({
       compilerOptions: {
@@ -112,7 +90,7 @@ void check
         types: [],
         lib: ['ES2022', 'DOM'],
       },
-      include: ['consumer.ts', 'consumer.cts'],
+      include: ['consumer.ts'],
     }),
   )
   run(

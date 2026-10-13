@@ -6,7 +6,9 @@ The project is named **hono-serialization**. This release focuses on Hono.
 
 ### Fixes
 
-- Add a runtime-independent `/codec` entry and separate client dependencies from server middleware in ESM and CommonJS output.
+- Ship ESM only, with one JavaScript and declaration format for every entry point.
+
+- Add a runtime-independent `/codec` entry and separate client dependencies from server middleware in ESM output.
 - Encode via Hono's unpatched response constructor; body codecs no longer recurse or re-encode another slot's wire output.
 - Add `Vary` for negotiation on both encoded and ordinary responses.
 - Declare response format explicitly, including custom MIME types; expose all protocol headers through CORS.
