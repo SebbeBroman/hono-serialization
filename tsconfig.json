@@ -4,7 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
-    "skipLibCheck": true,
+    "skipLibCheck": false,
     "declaration": true,
     "noEmit": true,
     "verbatimModuleSyntax": true,
@@ -12,7 +12,10 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
-    "lib": ["ES2022", "DOM"]
+    "lib": ["ES2022", "ES2025.Float16", "DOM"],
+    "noUncheckedIndexedAccess": true,
+    "types": ["node"],
+    "exactOptionalPropertyTypes": true
   },
   "include": ["src", "tests"]
 }

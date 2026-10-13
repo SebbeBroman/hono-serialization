@@ -1,156 +1,190 @@
 # hono-serialization
 
-Opt-in serialize/deserialize for [Hono](https://hono.dev) RPC. You bring the serializer (`superjson`, `seroval`, `devalue`, …). The library never ships one.
+Opt-in serialization for [Hono](https://hono.dev) RPC. Bring your own SuperJSON, devalue, Seroval, or binary codec. No serializer is bundled.
 
-A client sends `x-hono-serialization: <name>`. Matching helpers (`json` / `text` / `html` / `body`) then run that serializer. No header → ordinary Hono output, so curl, browsers, and stock `hc` keep working.
+A client sends `x-hono-serialization: <name>`. The middleware encodes matching response helpers and optionally decodes JSON request bodies. Requests without that header, or with an unknown name, receive ordinary Hono output.
 
 ## Install
 
-```bash
-npm install hono-serialization
+```sh
+npm install hono-serialization hono
 ```
 
-Peer: `hono` ^4.
+Peer dependency: Hono `^4.13.13`. ESM and CommonJS are supported.
 
 ## Quick start
 
+Define the shared codec in `codecs/superjson.ts`:
+
 ```ts
 import SuperJSON from 'superjson'
-import { Hono } from 'hono'
-import { defineSerializer, serialization } from 'hono-serialization'
-import { createClient } from 'hono-serialization/client'
+import { defineSerializer } from 'hono-serialization/codec'
 
 export const superjson = defineSerializer({
   name: 'superjson',
   json: {
+    output: 'preserve',
     serialize: SuperJSON.stringify,
     parse: SuperJSON.parse,
     input: {
+      output: 'preserve',
       serialize: SuperJSON.stringify,
       parse: SuperJSON.parse,
     },
   },
 })
+```
 
-const t = serialization(superjson)
+Create the middleware in `server.ts`:
 
-const app = new Hono()
-  .use('/api/*', t)
-  .get('/api/item', (c) => t.json(c, { createdAt: new Date() }))
+```ts
+import { Hono } from 'hono'
+import { serialization } from 'hono-serialization'
+import { superjson } from './codecs/superjson'
+
+const s = serialization(superjson)
+export const app = new Hono()
+  .use('/api/*', s)
+  .get('/api/item', (c) => s.json(c, { createdAt: new Date() }))
 
 export type AppType = typeof app
+```
+
+Create the browser client in `client.ts`:
+
+```ts
+import { createClient } from 'hono-serialization/client'
+import { superjson } from './codecs/superjson'
+import type { AppType } from './server'
 
 const client = createClient<AppType>('http://localhost', superjson)
 const data = await (await client.api.item.$get()).json()
 data.createdAt // Date
 ```
 
-`t` is the middleware. `t.json` / `t.text` / `t.html` / `t.body` match `c.json` and friends. Use `t.json` when RPC types should keep `Date` / `Map` / `Set` — Hono’s `c.json` types them as `JSONParsed` (`Date` → `string`). `c.json` still encodes at runtime when `t` is mounted.
+The browser imports the codec and RPC client. The `AppType` import is erased, so it does not load `server.ts` or its middleware.
 
-Put each serializer in its own file. The client is a separate entry (`hono-serialization/client`): import only the serializer that page uses.
+`defineSerializer` is optional: `serialization({ name, json, ... })` accepts and validates a configuration directly. A separate definition is convenient when the server and client share the codec.
 
-## Serializers
+Put `defineSerializer` imports in shared codec files using `hono-serialization/codec`, which has no Hono runtime or middleware dependency. Create `s = serialization(codec)` only on the server. Import `AppType` with `import type` on the client. Import the client from `hono-serialization/client` and only the codec a page needs.
 
-Each of `json`, `text`, `html`, `body` is optional. Omit a slot to keep Hono’s default for that helper.
+## Codec contracts and RPC types
 
-`serialize` / `parse` are the **response**. Request bodies stay vanilla JSON unless `input` is set to its own pair (it can differ from output).
+Declare how your JSON codec changes values:
+
+- `json.output: 'preserve'`: the codec promises to preserve the values and types supplied to `s.json`, such as Date, Map, and Set. The client exposes the original output type.
+- `json.output: 'json'`: the codec promises ordinary JSON conversion. The client exposes Hono's `JSONParsed<T>` type: Dates become strings.
+- Omitted `json.output`, or `'unknown'`: decoded output is `unknown`. Validate it before accessing properties.
+
+These are explicit codec contracts, not capabilities that TypeScript can prove about arbitrary functions. Choose `preserve` only for values supported by your codec; unsupported values must be rejected by the codec rather than silently converted. Declaring a false contract or using an unchecked cast can invalidate any TypeScript API's guarantees.
+
+`s.json` carries an opaque output type in the app schema. `createClient` maps it according to the codec contract and checks that the codec belongs to the app's typed endpoints. Direct `hc<typeof app>` cannot access negotiated output as if it were plain JSON.
+
+For ordinary JSON clients, use:
 
 ```ts
-type WireSerializer = {
-  serialize: (value: unknown) => string | Uint8Array | ArrayBuffer
-  parse: (data: string | Uint8Array) => unknown
-  binary?: boolean
-  contentType?: string
-}
+import { hc } from 'hono/client'
+import type { JsonApp } from 'hono-serialization'
 
-type Serializer = {
-  name: string // header value
-  json?: WireSerializer & { input?: WireSerializer }
-  text?: WireSerializer
-  html?: WireSerializer
-  body?: WireSerializer
-}
+const plain = hc<JsonApp<AppType>>('http://localhost')
+const data = await (await plain.api.item.$get()).json()
+data.createdAt // string
 ```
 
-`contentType` is the `Content-Type` of the **bytes**. JSON-shaped serializers (SuperJSON, `devalue.stringify`) can omit it (`application/json`). JS-shaped serializers (`seroval.serialize`, `uneval`) should set a private type such as `application/seroval` — not `application/javascript`.
+Serializer clients reject JSON responses that omit negotiation headers or advertise a different output contract. Missing middleware, unavailable codecs, and CORS configuration errors fail explicitly instead of returning a value with the wrong static type. Mount the middleware on all JSON routes used by a serializer client, including JSON error handlers.
+
+`c.json` retains Hono's ordinary `JSONParsed` types. When the middleware patches it, values are normalized to JSON **before** codec encoding, so a Date still arrives as a string. Use `s.json` to preserve rich values.
+
+`s.json`, `s.text`, and `s.body` default to status **200**, even after `c.status(...)`. Pass another status explicitly; numeric and `{ status: ... }` arguments preserve the literal RPC status. Body-producing helpers reject contentless statuses at compile time. `s.text` exposes `string`, and `s.body` does not claim the encoded bytes are the original input value.
+
+## Request bodies
+
+Bodies remain ordinary JSON unless `json.input` is provided. An input codec requires its own `output: 'preserve' | 'json'` contract. The client retains rich JSON argument types only for a preserving input codec; otherwise request types undergo JSON conversion.
+
+Mount serialization **before** JSON validators. Validate the decoded values, using schemas appropriate for the input codec. Query parameters, forms, and WebSockets keep Hono's behavior.
+
+Input and response codecs can differ. For Seroval, use its safe JSON mode on requests:
 
 ```ts
-import { serialize, deserialize } from 'seroval'
+import { serialize, deserialize, toJSON, fromJSON } from 'seroval'
 
-export const seroval = defineSerializer({
+const seroval = defineSerializer({
   name: 'seroval',
   json: {
+    output: 'preserve',
     serialize,
     parse: deserialize,
     contentType: 'application/seroval',
+    input: {
+      output: 'preserve',
+      serialize: (value: unknown) => JSON.stringify(toJSON(value)),
+      parse: (wire: string) => fromJSON(JSON.parse(wire)),
+    },
   },
 })
 ```
 
-Same handler, rewritten wire:
+Never evaluate request bodies with `eval`, Seroval's `deserialize`, or a devalue `uneval` decoder. A request header is not authentication, and anyone can construct an HTTP request independently of your client.
 
-```http
-Content-Type: application/seroval
-x-hono-serialization: seroval
-```
+## Wire formats
 
-`serialize` must return a string (or bytes if `binary: true`). Do not return a JSON object — that double-encodes uneval/seroval.
+Each of `json`, `text`, `html`, and `body` is optional. Omitted slots use Hono's default response. Text and HTML decoders must return strings.
 
-| Library | Response | Request (`input`) |
-|---|---|---|
-| JSON | `JSON.stringify` / `JSON.parse` | same |
-| superjson | `SuperJSON.stringify` / `.parse` | same |
-| devalue | `stringify` / `parse` | same |
-| seroval | `serialize` / `deserialize` | `toJSON` / `fromJSON`, or another safe pair |
-| devalue uneval | `uneval` / eval | **not** uneval — use superjson or devalue `stringify` |
-
-Never use an eval-based serializer as `input` unless you fully control the client.
-
-## Several serializers
-
-The server can mount many; the client still takes **one**.
+A text codec returns a string, and `parse` receives a string. A binary codec must explicitly set `binary: true`, return `Uint8Array` or `ArrayBuffer`, and accept `Uint8Array` in `parse`. MIME types do not imply binary behavior.
 
 ```ts
-const t = serialization([superjson, seroval])
-app.use('/api/*', t)
+import { encode, decode } from 'cbor-x'
+
+const cbor = defineSerializer({
+  name: 'cbor',
+  json: {
+    output: 'preserve',
+    binary: true,
+    contentType: 'application/cbor',
+    serialize: encode,
+    parse: decode,
+  },
+})
+```
+
+Set `contentType` to the MIME type of the wire representation. JSON-shaped strings default to `application/json`; binary codecs default to `application/octet-stream`. JavaScript-shaped output should use a private MIME type such as `application/seroval`, rather than `application/javascript`. Invalid codec output throws instead of being coerced into an empty body.
+
+The response advertises the codec name, the actual encoded slot, and the JSON output contract. Decoding uses those declarations rather than guessing from Content-Type. Response clones and per-call fetch implementations retain decoding. The `body` slot exposes raw wire bytes; decode them explicitly with the codec when needed. `json`, `text`, `arrayBuffer`, and `bytes` share a cached body; `text()` on an encoded JSON response returns its raw wire text.
+
+## Several codecs and custom headers
+
+```ts
+const s = serialization([superjson, seroval])
+app.use('/api/*', s)
 
 const jsonClient = createClient<AppType>(url, superjson)
 const serovalClient = createClient<AppType>(url, seroval)
 ```
 
-Mount `t` only on routes that should participate, and **before** validators if `input` is set (`zValidator('json', z.object({ createdAt: z.date() }))`).
+A helper belongs to its middleware instance. Mixing helpers from different instances throws rather than using an unrelated codec.
 
-## Header
-
-Default: `x-hono-serialization` = `serializer.name`. Unknown names are ignored (no echo). Override with `serialization(superjson, { header: 'x-my-serde' })` and the same `header` on `createClient`.
-
-CORS: allow that header on preflight (`cors()`). The middleware appends it to `Access-Control-Expose-Headers` on encoded responses.
-
-## Types
-
-| Handler | `hc<typeof app>` | `createClient(..., superjson)` | `hc<JsonApp<typeof app>>` |
-|---|---|---|---|
-| `c.json({ d: new Date() })` | `d: string` | `d: string` (runtime `Date` if header) | `d: string` |
-| `t.json(c, { d: new Date() })` | `d: Date` (lie if no header) | `d: Date` | `d: string` |
-
-- Serializer RPC: `t.json` + `createClient`
-- Plain JSON: `c.json` + `hc`
-- Dual-mode (`t.json` server, vanilla client): `hc<JsonApp<typeof app>>`
-
-`createClient` wraps `hc` (`$url` / `$path` still work). If `contentType` is not JSON, use the wrapped `res.json()` — Hono’s `parseResponse()` keys off Content-Type.
-
-## API
+Configure a custom header on both ends:
 
 ```ts
-defineSerializer({ name, json?, text?, html?, body? })
-
-const t = serialization(superjson)
-const t = serialization([superjson, seroval], { header?: string })
-
-t.json(c, data, status?)
-t.text(c, text, status?)
-t.html(c, html, status?)
-t.body(c, data, status?)
-
-createClient<AppType>(url, superjson, { header?, ...hcOptions })
+const s = serialization(superjson, { header: 'x-my-serde' })
+const client = createClient<AppType>(url, superjson, { header: 'x-my-serde' })
 ```
+
+For CORS, allow the negotiation request header in preflight. Encoded responses expose the negotiation header and its `-format` and `-output` companions. The middleware adds the configured header to `Vary` on encoded and ordinary responses while preserving existing entries.
+
+`createClient` accepts Hono client options, including async headers and per-call fetch overrides. It always sets the negotiation header on the outgoing request. `$url`, `$path`, and `$ws` retain their Hono behavior. For private MIME types, use the wrapped `res.json()`; Hono's `parseResponse()` selects a parser by Content-Type.
+
+## Development
+
+```sh
+npm ci
+npm run typecheck
+npm test
+npm run build
+npm run check:package
+npm run check:release
+```
+
+Typechecking includes positive and negative RPC assertions and dependency declarations. Publishing runs the full release check, including typechecking, tests, ESM/CJS builds, package-boundary checks, and installed tarball tests over real HTTP.
+
+See [CHANGELOG.md](CHANGELOG.md) for migration notes.

@@ -1,7 +1,7 @@
 import { encode as cborEncode, decode as cborDecode } from 'cbor-x'
 import { parse as devalueParse, stringify as devalueStringify } from 'devalue'
 import { Hono } from 'hono'
-import { deserialize, serialize } from 'seroval'
+import { deserialize, serialize, toJSON, fromJSON } from 'seroval'
 import SuperJSON from 'superjson'
 import { describe, expect, test } from 'vitest'
 import { createClient } from '../src/client'
@@ -26,9 +26,11 @@ const payload = (): Payload => ({
 const superjson = defineSerializer({
   name: 'superjson',
   json: {
+    output: 'preserve',
     serialize: SuperJSON.stringify,
     parse: SuperJSON.parse,
     input: {
+      output: 'preserve',
       serialize: SuperJSON.stringify,
       parse: SuperJSON.parse,
     },
@@ -38,9 +40,11 @@ const superjson = defineSerializer({
 const vanilla = defineSerializer({
   name: 'json',
   json: {
+    output: 'json',
     serialize: JSON.stringify,
     parse: JSON.parse,
     input: {
+      output: 'json',
       serialize: JSON.stringify,
       parse: JSON.parse,
     },
@@ -50,9 +54,11 @@ const vanilla = defineSerializer({
 const devalue = defineSerializer({
   name: 'devalue',
   json: {
+    output: 'preserve',
     serialize: devalueStringify,
     parse: devalueParse,
     input: {
+      output: 'preserve',
       serialize: devalueStringify,
       parse: devalueParse,
     },
@@ -62,13 +68,14 @@ const devalue = defineSerializer({
 const seroval = defineSerializer({
   name: 'seroval',
   json: {
+    output: 'preserve',
     serialize,
     parse: deserialize,
-    contentType: 'application/javascript',
+    contentType: 'application/seroval',
     input: {
-      serialize,
-      parse: deserialize,
-      contentType: 'application/javascript',
+      output: 'preserve',
+      serialize: (value: unknown) => JSON.stringify(toJSON(value)),
+      parse: (value: string) => fromJSON(JSON.parse(value)),
     },
   },
 })
@@ -134,7 +141,11 @@ describe.each(libraries)('$serializer.name', (item) => {
   test('GET round-trips through createClient', async () => {
     const res = await clientOf(item).item.$get()
     expect(res.headers.get(DEFAULT_HEADER)).toBe(item.serializer.name)
-    const data = await res.json()
+    const data = (await res.json()) as Payload & {
+      isDate: boolean
+      isSet: boolean
+      isMap: boolean
+    }
     if (item.rich) {
       expectRich(data)
     } else {
@@ -145,7 +156,11 @@ describe.each(libraries)('$serializer.name', (item) => {
   test('POST input is parsed on the server and echoed', async () => {
     const res = await clientOf(item).echo.$post({ json: payload() })
     expect(res.headers.get(DEFAULT_HEADER)).toBe(item.serializer.name)
-    const data = await res.json()
+    const data = (await res.json()) as Payload & {
+      isDate: boolean
+      isSet: boolean
+      isMap: boolean
+    }
     if (item.rich) {
       expect(data.isDate).toBe(true)
       expect(data.isSet).toBe(true)
@@ -162,7 +177,11 @@ describe.each(libraries)('$serializer.name', (item) => {
   test('no header still returns vanilla JSON.stringify', async () => {
     const res = await app.request('/item')
     expect(res.headers.get(DEFAULT_HEADER)).toBeNull()
-    const data = await res.json()
+    const data = (await res.json()) as Payload & {
+      isDate: boolean
+      isSet: boolean
+      isMap: boolean
+    }
     expectVanilla(data)
   })
 })
@@ -176,13 +195,15 @@ const cborSlot = {
     return cborDecode(data)
   },
   contentType: 'application/cbor',
+  binary: true as const,
 }
 
 const cbor = defineSerializer({
   name: 'cbor',
   json: {
+    output: 'preserve',
     ...cborSlot,
-    input: { ...cborSlot },
+    input: { output: 'preserve', ...cborSlot },
   },
 })
 
@@ -211,7 +232,11 @@ describe('cbor-x contentType', () => {
     const res = await client.item.$get()
     expect(res.headers.get(DEFAULT_HEADER)).toBe('cbor')
     expect(res.headers.get('content-type')).toMatch(/application\/cbor/)
-    const data = await res.json()
+    const data = (await res.json()) as Payload & {
+      isDate: boolean
+      isSet: boolean
+      isMap: boolean
+    }
     expectRich(data)
   })
 
@@ -226,7 +251,11 @@ describe('cbor-x contentType', () => {
     const res = await client.echo.$post({ json: payload() })
     expect(requestContentType).toMatch(/application\/cbor/)
     expect(res.headers.get('content-type')).toMatch(/application\/cbor/)
-    const data = await res.json()
+    const data = (await res.json()) as Payload & {
+      isDate: boolean
+      isSet: boolean
+      isMap: boolean
+    }
     expect(data.isDate).toBe(true)
     expect(data.isSet).toBe(true)
     expect(data.isMap).toBe(true)

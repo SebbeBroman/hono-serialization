@@ -7,15 +7,27 @@ import {
   DEFAULT_HTML_CONTENT_TYPE,
   DEFAULT_JSON_CONTENT_TYPE,
   DEFAULT_TEXT_CONTENT_TYPE,
+  appendHeader,
+  formatHeader,
+  outputHeader,
   getActive,
   lookup,
   resolve,
   resolveInput,
   sendEncoded,
   setActive,
+  validateHeader,
   type HeaderRecord,
+  type ResponseOptions,
 } from './internal'
-import type { FormatName, FormatSerializer, Serializer } from './types'
+import type {
+  FormatName,
+  HelperOutput,
+  Serializer,
+  SerializerList,
+  SerializerOf,
+  WireBody,
+} from './types'
 
 export {
   BINARY_CONTENT_TYPE,
@@ -30,57 +42,39 @@ export type {
   Serializer,
   WireBody,
   WireSerializer,
+  JsonApp,
+  OutputMode,
 } from './types'
-export type { JsonApp } from './types'
+export type { ResponseOptions } from './internal'
 
-export function defineSerializer<const T extends Serializer>(serializer: T): T {
-  if (serializer.name == null || serializer.name === '') {
-    throw new TypeError('defineSerializer: name is required')
-  }
-  if (
-    serializer.json == null &&
-    serializer.text == null &&
-    serializer.html == null &&
-    serializer.body == null
-  ) {
-    throw new TypeError('defineSerializer: at least one of json, text, html, body is required')
-  }
-  return serializer
-}
-
-export type SerializationMiddlewareOptions = {
-  /** Header that selects a serializer by `name`. @default 'x-hono-serialization' */
-  header?: string
-}
-
-export type JsonHelper = {
-  <T, U extends ContentfulStatusCode = ContentfulStatusCode>(
+export { defineSerializer } from './codec'
+export type SerializationMiddlewareOptions = { header?: string }
+export type JsonHelper<S extends Serializer = Serializer> = {
+  <T, U extends ContentfulStatusCode = 200>(
     c: Context,
     object: T,
     status?: U,
     headers?: HeaderRecord,
-  ): Response & TypedResponse<T, U, 'json'>
-  <T, U extends ContentfulStatusCode = ContentfulStatusCode>(
+  ): Response & TypedResponse<HelperOutput<T, S>, U, 'json'>
+  <T, U extends ContentfulStatusCode = 200>(
     c: Context,
     object: T,
-    init?: ResponseInit,
-  ): Response & TypedResponse<T, U, 'json'>
+    init: ResponseOptions<U>,
+  ): Response & TypedResponse<HelperOutput<T, S>, U, 'json'>
 }
-
 export type TextHelper = {
-  <T extends string, U extends ContentfulStatusCode = ContentfulStatusCode>(
+  <T extends string, U extends ContentfulStatusCode = 200>(
     c: Context,
     text: T,
     status?: U,
     headers?: HeaderRecord,
-  ): Response & TypedResponse<T, U, 'text'>
-  <T extends string, U extends ContentfulStatusCode = ContentfulStatusCode>(
+  ): Response & TypedResponse<string, U, 'text'>
+  <T extends string, U extends ContentfulStatusCode = 200>(
     c: Context,
     text: T,
-    init?: ResponseInit,
-  ): Response & TypedResponse<T, U, 'text'>
+    init: ResponseOptions<U>,
+  ): Response & TypedResponse<string, U, 'text'>
 }
-
 export type HtmlHelper = {
   <T extends string | Promise<string>>(
     c: Context,
@@ -91,133 +85,161 @@ export type HtmlHelper = {
   <T extends string | Promise<string>>(
     c: Context,
     html: T,
-    init?: ResponseInit,
+    init: ResponseOptions,
   ): T extends string ? Response : Promise<Response>
 }
-
 export type BodyHelper = {
-  <T extends string | ArrayBuffer | Uint8Array, U extends ContentfulStatusCode>(
+  <T extends WireBody, U extends ContentfulStatusCode = 200>(
     c: Context,
     data: T,
     status?: U,
     headers?: HeaderRecord,
-  ): Response & TypedResponse<T, U, 'body'>
-  <T extends string | ArrayBuffer | Uint8Array, U extends ContentfulStatusCode>(
+  ): Response & TypedResponse<unknown, U, 'body'>
+  <T extends WireBody, U extends ContentfulStatusCode = 200>(
     c: Context,
     data: T,
-    init?: ResponseInit,
-  ): Response & TypedResponse<T, U, 'body'>
+    init: ResponseOptions<U>,
+  ): Response & TypedResponse<unknown, U, 'body'>
 }
-
-export type SerializationMiddleware = MiddlewareHandler & {
-  json: JsonHelper
-  text: TextHelper
-  html: HtmlHelper
-  body: BodyHelper
-}
-
+export type SerializationMiddleware<S extends Serializer = Serializer> =
+  MiddlewareHandler & {
+    json: JsonHelper<S>
+    text: TextHelper
+    html: HtmlHelper
+    body: BodyHelper
+  }
 const FALLBACKS: Record<FormatName, string | undefined> = {
   json: DEFAULT_JSON_CONTENT_TYPE,
   text: DEFAULT_TEXT_CONTENT_TYPE,
   html: DEFAULT_HTML_CONTENT_TYPE,
   body: undefined,
 }
+const awaited = (
+  value: string | Promise<string>,
+  send: (s: string) => Response,
+) =>
+  typeof value === 'string' ? send(value) : Promise.resolve(value).then(send)
 
-const sendSlot = (
-  c: Context,
-  format: FormatName,
-  value: unknown,
-  arg: unknown,
-  headers: HeaderRecord | undefined,
-): Response => {
-  const slot = getActive(c)?.serializer[format] as FormatSerializer | undefined
-  if (slot) {
-    const active = getActive(c)!
-    return sendEncoded(
-      c,
-      value,
-      arg as ResponseInit | undefined,
-      headers,
-      resolve(slot, FALLBACKS[format]),
-      active.header,
-      active.serializer.name,
-    )
-  }
-  const fallback = (c as unknown as Record<FormatName, (...a: never[]) => Response>)[format]
-  return fallback.call(c, value as never, arg as never, headers as never)
-}
-
-const awaited = (value: string | Promise<string>, send: (s: string) => Response) =>
-  typeof value === 'string' ? send(value) : Promise.resolve(value).then((s) => send(String(s)))
-
-/** Like `c.json()` but RPC `output` stays `T` (so `Date` is not `string`). */
-export const json: JsonHelper = ((c: Context, value: unknown, arg?: unknown, headers?: HeaderRecord) =>
-  sendSlot(c, 'json', value, arg, headers)) as JsonHelper
-
-/** Like `c.text()`. Uses the `text` slot when present. */
-export const text: TextHelper = ((c: Context, value: string, arg?: unknown, headers?: HeaderRecord) =>
-  sendSlot(c, 'text', value, arg, headers)) as TextHelper
-
-/** Like `c.html()`. Uses the `html` slot when present. */
-export const html: HtmlHelper = ((c: Context, value: string | Promise<string>, arg?: unknown, headers?: HeaderRecord) =>
-  awaited(value, (s) => sendSlot(c, 'html', s, arg, headers))) as HtmlHelper
-
-/** Like `c.body()`. Uses the `body` slot when present. */
-export const body: BodyHelper = ((c: Context, value: unknown, arg?: unknown, headers?: HeaderRecord) =>
-  sendSlot(c, 'body', value, arg, headers)) as BodyHelper
-
-/**
- * Negotiate a serializer from the request header and patch the Hono helpers
- * that have a matching slot. Omitted slots stay on Hono defaults.
- * No header / unknown name → no patching (curl, stock `hc`).
- */
-export function serialization(
-  serializers: Serializer | readonly Serializer[],
+export function serialization<const S extends SerializerList>(
+  serializers: S,
   options?: SerializationMiddlewareOptions,
-): SerializationMiddleware {
+): SerializationMiddleware<SerializerOf<S> & Serializer> {
   const byName = lookup(serializers)
   const header = options?.header ?? DEFAULT_HEADER
-
+  validateHeader(header)
   const middleware = createMiddleware(async (c, next) => {
-    const name = c.req.header(header)?.trim() || undefined
-    const active = name != null ? byName.get(name) : undefined
-    if (!active) {
-      await next()
-      return
-    }
-    setActive(c, { serializer: active, header })
-
-    for (const format of Object.keys(FALLBACKS) as FormatName[]) {
-      const slot = active[format]
-      if (!slot) continue
-      const resolved = resolve(slot, FALLBACKS[format])
-      if (format === 'html') {
-        c.html = ((v: string | Promise<string>, arg?: never, headers?: never) =>
-          awaited(v, (s) => sendEncoded(c, s, arg, headers, resolved, header, active.name))) as never
-      } else if (format === 'json') {
-        c.json = ((v: unknown, arg?: never, headers?: never) =>
-          sendEncoded(c, v, arg, headers, resolved, header, active.name)) as never
-      } else if (format === 'text') {
-        c.text = ((v: unknown, arg?: never, headers?: never) =>
-          sendEncoded(c, v, arg, headers, resolved, header, active.name)) as never
-      } else {
-        c.body = ((v: unknown, arg?: never, headers?: never) =>
-          sendEncoded(c, v, arg, headers, resolved, header, active.name)) as never
+    const name = c.req.header(header)?.trim()
+    const active = name ? byName.get(name) : undefined
+    if (active) {
+      setActive(c, { serializer: active, header })
+      for (const format of Object.keys(FALLBACKS) as FormatName[]) {
+        const slot = active[format]
+        if (!slot) continue
+        const resolved = resolve(slot, FALLBACKS[format])
+        const send = (
+          v: unknown,
+          arg?: ContentfulStatusCode | ResponseOptions,
+          headers?: HeaderRecord,
+        ) => sendEncoded(c, v, arg, headers, resolved, header, active, format)
+        if (format === 'html') {
+          c.html = ((
+            v: string | Promise<string>,
+            arg?: ContentfulStatusCode | ResponseOptions,
+            headers?: HeaderRecord,
+          ) => awaited(v, (s) => send(s, arg, headers))) as Context['html']
+        } else if (format === 'json') {
+          // c.json's public Hono type promises JSONParsed, so normalize before encoding.
+          c.json = ((
+            v: unknown,
+            arg?: ContentfulStatusCode | ResponseOptions,
+            headers?: HeaderRecord,
+          ) =>
+            send(
+              JSON.parse(JSON.stringify(v)),
+              arg,
+              headers,
+            )) as Context['json']
+        } else {
+          c[format] = send as Context['text'] & Context['body']
+        }
+      }
+      const input = resolveInput(active.json)
+      if (input) {
+        let parsed: Promise<unknown> | undefined
+        c.req.json = (() =>
+          (parsed ??= (async () => {
+            const data = input.binary
+              ? new Uint8Array(await c.req.arrayBuffer())
+              : await c.req.text()
+            return input.parse(data as never)
+          })())) as Context['req']['json']
       }
     }
-
-    const input = resolveInput(active.json)
-    if (input) {
-      c.req.json = (async () => {
-        const data = input.binary
-          ? new Uint8Array(await c.req.arrayBuffer())
-          : await c.req.text()
-        return input.parse(data)
-      }) as typeof c.req.json
-    }
-
     await next()
+    const responseHeaders = new Headers(c.res.headers)
+    appendHeader(responseHeaders, 'Vary', header)
+    c.header('Vary', responseHeaders.get('Vary')!)
+    if (c.res.headers.get(header)) {
+      for (const name of [header, formatHeader(header), outputHeader(header)]) {
+        appendHeader(responseHeaders, 'Access-Control-Expose-Headers', name)
+      }
+      c.header(
+        'Access-Control-Expose-Headers',
+        responseHeaders.get('Access-Control-Expose-Headers')!,
+      )
+    }
   })
-
-  return Object.assign(middleware, { json, text, html, body })
+  const send = (
+    c: Context,
+    format: FormatName,
+    value: unknown,
+    arg?: ContentfulStatusCode | ResponseOptions,
+    headers?: HeaderRecord,
+  ) => {
+    const active = getActive(c)
+    if (
+      active &&
+      (active.header !== header ||
+        byName.get(active.serializer.name) !== active.serializer)
+    ) {
+      throw new TypeError(
+        'serialization helper used with a different middleware instance',
+      )
+    }
+    // A helper's status must agree with its RPC type, even after c.status().
+    const init =
+      typeof arg === 'object'
+        ? { ...arg, status: arg.status ?? 200 }
+        : (arg ?? 200)
+    const slot = active?.serializer[format]
+    if (slot && active)
+      return sendEncoded(
+        c,
+        value,
+        init,
+        headers,
+        resolve(slot, FALLBACKS[format]),
+        header,
+        active.serializer,
+        format,
+      )
+    const fallback = c[format] as (
+      value: never,
+      arg: never,
+      headers?: HeaderRecord,
+    ) => Response
+    return fallback(value as never, init as never, headers)
+  }
+  return Object.assign(middleware, {
+    json: ((c, value, arg, headers) =>
+      send(c, 'json', value, arg, headers)) as JsonHelper<
+      SerializerOf<S> & Serializer
+    >,
+    text: ((c, value, arg, headers) =>
+      send(c, 'text', value, arg, headers)) as TextHelper,
+    html: ((c, value, arg, headers) =>
+      awaited(value, (s) => send(c, 'html', s, arg, headers))) as HtmlHelper,
+    body: ((c, value, arg, headers) =>
+      send(c, 'body', value, arg, headers)) as BodyHelper,
+  })
 }

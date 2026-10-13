@@ -1,101 +1,94 @@
 import type { Context } from 'hono'
-import type { ContentfulStatusCode, StatusCode } from 'hono/utils/http-status'
-import type { FormatSerializer, Serializer, WireSerializer } from './types'
-
-export const DEFAULT_HEADER = 'x-hono-serialization'
-export const DEFAULT_JSON_CONTENT_TYPE = 'application/json; charset=UTF-8'
-export const DEFAULT_TEXT_CONTENT_TYPE = 'text/plain; charset=UTF-8'
-export const DEFAULT_HTML_CONTENT_TYPE = 'text/html; charset=UTF-8'
-export const BINARY_CONTENT_TYPE = 'application/octet-stream'
+import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import type { FormatName, Serializer } from './types'
+import { encode, formatHeader, outputHeader, type Resolved } from './wire'
+import { validateSerializer } from './validation'
+export * from './wire'
 
 const CONTEXT_KEY = 'hono-serialization'
-
 export type Active = { serializer: Serializer; header: string }
-
 export const getActive = (c: Context): Active | undefined =>
   c.get(CONTEXT_KEY) as Active | undefined
-
 export const setActive = (c: Context, active: Active): void => {
   c.set(CONTEXT_KEY, active)
 }
 
-export type Resolved = {
-  serialize: WireSerializer['serialize']
-  parse: WireSerializer['parse']
-  binary: boolean
-  contentType: string | undefined
-}
-
-const isBinarySlot = (slot: Pick<WireSerializer, 'binary' | 'contentType'>): boolean =>
-  slot.binary === true ||
-  (slot.contentType != null && /octet-stream|cbor|msgpack/i.test(slot.contentType))
-
-export const resolve = (
-  slot: WireSerializer,
-  fallback: string | undefined,
-): Resolved => ({
-  serialize: slot.serialize,
-  parse: slot.parse,
-  binary: isBinarySlot(slot),
-  contentType: slot.contentType ?? (isBinarySlot(slot) ? BINARY_CONTENT_TYPE : fallback),
-})
-
-export const resolveInput = (slot: FormatSerializer | undefined): Resolved | undefined =>
-  slot?.input == null ? undefined : resolve(slot.input, slot.input.contentType)
-
-const mimeOf = (contentType: string): string =>
-  contentType.split(';')[0]?.trim().toLowerCase() ?? ''
-
-export const isJsonCt = (ct: string): boolean => {
-  const m = mimeOf(ct)
-  return m === 'application/json' || m.endsWith('+json')
-}
-
-export const isHtmlCt = (ct: string): boolean => {
-  const m = mimeOf(ct)
-  return m === 'text/html' || m.endsWith('+html')
-}
-
-export const toBytes = (body: ArrayBuffer | Uint8Array): Uint8Array =>
-  body instanceof Uint8Array ? body : new Uint8Array(body)
-
-export const lookup = (
+export function lookup(
   serializers: Serializer | readonly Serializer[],
-): Map<string, Serializer> => {
-  const list = Array.isArray(serializers) ? [...serializers] : [serializers]
-  if (list.length === 0) throw new TypeError('serialization: at least one serializer is required')
+): Map<string, Serializer> {
+  const list: readonly Serializer[] = Array.isArray(serializers)
+    ? serializers
+    : [serializers as Serializer]
+  if (!list.length)
+    throw new TypeError('serialization: at least one serializer is required')
   const byName = new Map<string, Serializer>()
   for (const s of list) {
-    if (byName.has(s.name)) throw new TypeError(`serialization: duplicate name "${s.name}"`)
+    validateSerializer(s)
+    if (byName.has(s.name))
+      throw new TypeError(`serialization: duplicate name "${s.name}"`)
     byName.set(s.name, s)
   }
   return byName
 }
-
 export type HeaderRecord = Record<string, string | string[]>
-
+export type ResponseOptions<
+  U extends ContentfulStatusCode = ContentfulStatusCode,
+> = Omit<ResponseInit, 'status'> & { status?: U }
+export function appendHeader(
+  headers: Headers,
+  key: string,
+  value: string,
+): void {
+  const parts = (headers.get(key) ?? '')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean)
+  if (
+    !parts.some((p) => p.toLowerCase() === value.toLowerCase()) &&
+    !(key.toLowerCase() === 'vary' && parts.includes('*'))
+  )
+    parts.push(value)
+  headers.set(key, parts.join(', '))
+}
 export const sendEncoded = (
   c: Context,
   value: unknown,
-  arg: StatusCode | ResponseInit | undefined,
+  arg: ContentfulStatusCode | ResponseOptions | undefined,
   headers: HeaderRecord | undefined,
   slot: Resolved,
   header: string,
-  name: string,
+  serializer: Serializer,
+  format: FormatName,
 ): Response => {
-  const body = slot.serialize(value)
-  const binary = slot.binary || typeof body !== 'string'
-  if (!binary && typeof body !== 'string') {
-    throw new TypeError('serializer serialize() must return a string')
+  const body = encode(slot, value)
+  const payload = body instanceof Uint8Array ? new Uint8Array(body) : body
+  const res =
+    typeof arg === 'object'
+      ? c.newResponse(payload, arg)
+      : c.newResponse(payload, arg, headers)
+  if (typeof arg === 'object' && headers) {
+    for (const [key, value] of Object.entries(headers)) {
+      res.headers.delete(key)
+      for (const item of typeof value === 'string' ? [value] : value)
+        res.headers.append(key, item)
+    }
   }
-  if (binary && typeof body === 'string') {
-    throw new TypeError('binary serializer serialize() must return Uint8Array or ArrayBuffer')
-  }
-  c.header(header, name)
-  c.header('Access-Control-Expose-Headers', header, { append: true })
-  const payload = typeof body === 'string' || body instanceof ArrayBuffer ? body : new Uint8Array(body)
-  return c.body(payload, arg as ContentfulStatusCode, {
-    ...(slot.contentType != null ? { 'Content-Type': slot.contentType } : {}),
-    ...headers,
-  })
+  if (slot.contentType) res.headers.set('Content-Type', slot.contentType)
+  res.headers.set(header, serializer.name)
+  res.headers.set(formatHeader(header), format)
+  if (format === 'json')
+    res.headers.set(outputHeader(header), serializer.json?.output ?? 'unknown')
+  else res.headers.delete(outputHeader(header))
+  appendHeader(res.headers, 'Access-Control-Expose-Headers', header)
+  appendHeader(
+    res.headers,
+    'Access-Control-Expose-Headers',
+    formatHeader(header),
+  )
+  appendHeader(
+    res.headers,
+    'Access-Control-Expose-Headers',
+    outputHeader(header),
+  )
+  return res
 }

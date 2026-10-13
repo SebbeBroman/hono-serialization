@@ -1,17 +1,29 @@
 import { uneval } from 'devalue'
 import { Hono } from 'hono'
 import { hc } from 'hono/client'
-import { deserialize as serovalDeserialize, serialize as serovalSerialize } from 'seroval'
-import { stringify as superjsonStringify, parse as superjsonParse } from 'superjson'
+import {
+  deserialize as serovalDeserialize,
+  serialize as serovalSerialize,
+} from 'seroval'
+import {
+  stringify as superjsonStringify,
+  parse as superjsonParse,
+} from 'superjson'
 import { describe, expect, test } from 'vitest'
 import { createClient } from '../src/client'
-import { DEFAULT_HEADER, serialization, defineSerializer } from '../src/index'
+import {
+  DEFAULT_HEADER,
+  serialization,
+  defineSerializer,
+  type JsonApp,
+} from '../src/index'
 
 const date = new Date('2024-01-15T12:00:00.000Z')
 
 const superjson = defineSerializer({
   name: 'superjson',
   json: {
+    output: 'preserve',
     serialize: superjsonStringify,
     parse: superjsonParse,
   },
@@ -20,9 +32,11 @@ const superjson = defineSerializer({
 const superjsonIn = defineSerializer({
   name: 'superjson',
   json: {
+    output: 'preserve',
     serialize: superjsonStringify,
     parse: superjsonParse,
     input: {
+      output: 'preserve',
       serialize: superjsonStringify,
       parse: superjsonParse,
     },
@@ -60,13 +74,13 @@ describe('patched c.json', () => {
     .use(serialization(superjson))
     .get('/item', (c) => c.json({ createdAt: date }))
 
-  test('header + c.json encodes with the json slot', async () => {
+  test('header + c.json encodes JSON-normalized values', async () => {
     const res = await app.request('/item', {
       headers: { [DEFAULT_HEADER]: 'superjson' },
     })
     expect(res.headers.get(DEFAULT_HEADER)).toBe('superjson')
-    const data = superjsonParse(await res.text()) as { createdAt: Date }
-    expect(data.createdAt).toBeInstanceOf(Date)
+    const data = superjsonParse(await res.text()) as { createdAt: string }
+    expect(data.createdAt).toBe(date.toISOString())
   })
 
   test('no header + c.json stays JSON.stringify', async () => {
@@ -82,7 +96,7 @@ describe('omitted slots fall back to Hono defaults', () => {
     name: 'wrap',
     text: {
       serialize: (s: string) => `wrapped:${s}`,
-      parse: (s) => String(s).replace(/^wrapped:/, ''),
+      parse: (s: string) => String(s).replace(/^wrapped:/, ''),
     },
   })
 
@@ -129,13 +143,11 @@ describe('text slot', () => {
     name: 'wrap',
     text: {
       serialize: (s: string) => `wrapped:${s}`,
-      parse: (s) => String(s).replace(/^wrapped:/, ''),
+      parse: (s: string) => String(s).replace(/^wrapped:/, ''),
     },
   })
   const t = serialization(wrapped)
-  const app = new Hono()
-    .use(t)
-    .get('/hello', (c) => t.text(c, 'hello'))
+  const app = new Hono().use(t).get('/hello', (c) => t.text(c, 'hello'))
 
   test('no header → default text', async () => {
     const res = await app.request('/hello')
@@ -165,13 +177,11 @@ describe('html slot', () => {
     name: 'wrap',
     html: {
       serialize: (s: string) => `<!--x-->${s}`,
-      parse: (s) => String(s).replace(/^<!--x-->/, ''),
+      parse: (s: string) => String(s).replace(/^<!--x-->/, ''),
     },
   })
   const t = serialization(wrapped)
-  const app = new Hono()
-    .use(t)
-    .get('/page', (c) => t.html(c, '<p>hi</p>'))
+  const app = new Hono().use(t).get('/page', (c) => t.html(c, '<p>hi</p>'))
 
   test('header → serialize html', async () => {
     const res = await app.request('/page', {
@@ -243,10 +253,12 @@ describe('input can differ from output', () => {
   const mixed = defineSerializer({
     name: 'js',
     json: {
+      output: 'preserve',
       serialize: uneval,
-      parse: (s) => (0, eval)(`(${s})`) as unknown,
-      contentType: 'application/javascript',
+      parse: (s: string) => (0, eval)(`(${s})`) as unknown,
+      contentType: 'application/devalue',
       input: {
+        output: 'preserve',
         serialize: superjsonStringify,
         parse: superjsonParse,
       },
@@ -266,7 +278,7 @@ describe('input can differ from output', () => {
       fetch: app.request as typeof fetch,
     })
     const res = await client.echo.$post({ json: { createdAt: date } })
-    expect(res.headers.get('content-type')).toMatch(/javascript/)
+    expect(res.headers.get('content-type')).toMatch(/devalue/)
     const data = await res.json()
     expect(data.isDate).toBe(true)
     expect(data.createdAt).toBeInstanceOf(Date)
@@ -277,9 +289,10 @@ describe('uneval-style json output', () => {
   const js = defineSerializer({
     name: 'js',
     json: {
+      output: 'preserve',
       serialize: uneval,
-      parse: (s) => (0, eval)(`(${s})`) as unknown,
-      contentType: 'application/javascript',
+      parse: (s: string) => (0, eval)(`(${s})`) as unknown,
+      contentType: 'application/devalue',
     },
   })
   const t = serialization(js)
@@ -292,7 +305,7 @@ describe('uneval-style json output', () => {
       fetch: app.request as typeof fetch,
     })
     const res = await client.item.$get()
-    expect(res.headers.get('content-type')).toMatch(/javascript/)
+    expect(res.headers.get('content-type')).toMatch(/devalue/)
     const data = await res.json()
     expect(data.createdAt).toBeInstanceOf(Date)
     expect(data.createdAt.toISOString()).toBe(date.toISOString())
@@ -303,6 +316,7 @@ describe('string serializer with private contentType', () => {
   const custom = defineSerializer({
     name: 'seroval',
     json: {
+      output: 'preserve',
       serialize: serovalSerialize,
       parse: serovalDeserialize,
       contentType: 'application/seroval',
@@ -332,7 +346,7 @@ describe('stock hc against a header-gated route', () => {
     .get('/item', (c) => t.json(c, { createdAt: date }))
 
   test('stock hc (no header) receives vanilla JSON', async () => {
-    const client = hc<typeof app>('http://localhost', {
+    const client = hc<JsonApp<typeof app>>('http://localhost', {
       fetch: app.request as typeof fetch,
     })
     const res = await client.item.$get()
@@ -401,6 +415,7 @@ describe('custom header name', () => {
 const binary = defineSerializer({
   name: 'bin',
   json: {
+    output: 'preserve',
     serialize: (value: unknown) =>
       new TextEncoder().encode(superjsonStringify(value)),
     parse: (data: string | Uint8Array) => {
@@ -411,6 +426,7 @@ const binary = defineSerializer({
     contentType: 'application/octet-stream',
     binary: true,
     input: {
+      output: 'preserve',
       serialize: (value: unknown) =>
         new TextEncoder().encode(superjsonStringify(value)),
       parse: (data: string | Uint8Array) => {
@@ -485,7 +501,11 @@ describe('defineSerializer / serialization() validation', () => {
     expect(() =>
       defineSerializer({
         name: '',
-        json: { serialize: JSON.stringify, parse: JSON.parse },
+        json: {
+          output: 'preserve',
+          serialize: JSON.stringify,
+          parse: JSON.parse,
+        },
       }),
     ).toThrow(/name/)
   })
