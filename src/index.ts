@@ -118,7 +118,7 @@ export function serialization<const S extends SerializerList>(
         value,
         init,
         headers,
-        resolve(active.serializer.json, DEFAULT_JSON_CONTENT_TYPE),
+        resolve(active.serializer.json),
         header,
         active.serializer,
       )

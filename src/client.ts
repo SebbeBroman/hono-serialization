@@ -9,7 +9,6 @@ import {
   resolveInput,
   validateHeader,
 } from './wire'
-import { defineSerializer } from './codec'
 import { validateSerializer } from './validation'
 import type {
   AppSerializer,
@@ -18,7 +17,6 @@ import type {
   Serializer,
   WireSerializer,
 } from './types'
-export { defineSerializer }
 export type { Serializer } from './types'
 
 type AnyClient = object
@@ -51,7 +49,7 @@ const wrapResponse = (
               'server and client JSON output contracts differ',
             )
           }
-          const slot = resolve(serializer.json, undefined)
+          const slot = resolve(serializer.json)
           const data = slot.binary
             ? new Uint8Array(await getBuf())
             : await getText()

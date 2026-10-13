@@ -187,4 +187,4 @@ npm run check:release
 
 Typechecking includes positive and negative RPC assertions and dependency declarations. Publishing runs the full release check, including typechecking, tests, ESM builds, package-boundary checks, and installed tarball tests over real HTTP.
 
-See [CHANGELOG.md](CHANGELOG.md) for migration notes.
+See [CHANGELOG.md](CHANGELOG.md) for release notes.

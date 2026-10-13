@@ -19,26 +19,24 @@ export function validateSerializer(s: Serializer): void {
       throw new TypeError(`defineSerializer: unsupported field "${key}"`)
     }
   }
-  for (const slot of [s.json, s.json.input]) {
-    if (!slot) continue
+  for (const codec of [s.json, s.json.input]) {
+    if (!codec) continue
     if (
-      typeof slot.serialize !== 'function' ||
-      typeof slot.parse !== 'function'
+      typeof codec.serialize !== 'function' ||
+      typeof codec.parse !== 'function'
     ) {
-      throw new TypeError(
-        'serializer slots require serialize and parse functions',
-      )
+      throw new TypeError('codecs require serialize and parse functions')
     }
-    if (slot.binary !== undefined && typeof slot.binary !== 'boolean')
+    if (codec.binary !== undefined && typeof codec.binary !== 'boolean')
       throw new TypeError('binary must be boolean')
-    if (slot.contentType !== undefined)
-      new Headers({ 'content-type': slot.contentType })
+    if (codec.contentType !== undefined)
+      new Headers({ 'content-type': codec.contentType })
   }
-  if (s.json?.input && !['preserve', 'json'].includes(s.json.input.output)) {
+  if (s.json.input && !['preserve', 'json'].includes(s.json.input.output)) {
     throw new TypeError('json.input.output must be preserve or json')
   }
   if (
-    s.json?.output !== undefined &&
+    s.json.output !== undefined &&
     !['preserve', 'json', 'unknown'].includes(s.json.output)
   ) {
     throw new TypeError('json.output must be preserve, json, or unknown')

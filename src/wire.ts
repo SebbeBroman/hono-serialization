@@ -1,4 +1,4 @@
-import type { Serializer, WireBody, WireSerializer } from './types'
+import type { JsonSerializer, WireBody, WireSerializer } from './types'
 
 export const DEFAULT_HEADER = 'x-hono-serialization'
 export const DEFAULT_JSON_CONTENT_TYPE = 'application/json; charset=UTF-8'
@@ -10,32 +10,28 @@ export type Resolved = {
   binary: boolean
   contentType: string | undefined
 }
-export const resolve = (
-  slot: WireSerializer<never>,
-  fallback: string | undefined,
-): Resolved => ({
-  serialize: slot.serialize,
-  parse: slot.parse,
-  binary: slot.binary === true,
+export const resolve = (codec: WireSerializer<never>): Resolved => ({
+  serialize: codec.serialize,
+  parse: codec.parse,
+  binary: codec.binary === true,
   contentType:
-    slot.contentType ?? (slot.binary ? BINARY_CONTENT_TYPE : fallback),
+    codec.contentType ??
+    (codec.binary ? BINARY_CONTENT_TYPE : DEFAULT_JSON_CONTENT_TYPE),
 })
-export const resolveInput = (slot: Serializer['json']): Resolved | undefined =>
-  slot?.input == null
-    ? undefined
-    : resolve(slot.input, DEFAULT_JSON_CONTENT_TYPE)
+export const resolveInput = (codec: JsonSerializer): Resolved | undefined =>
+  codec.input == null ? undefined : resolve(codec.input)
 
-export function encode(slot: Resolved, value: unknown): WireBody {
-  const body: unknown = slot.serialize(value as never)
-  if (slot.binary) {
+export function encode(codec: Resolved, value: unknown): WireBody {
+  const body: unknown = codec.serialize(value as never)
+  if (codec.binary) {
     if (!(body instanceof Uint8Array) && !(body instanceof ArrayBuffer)) {
       throw new TypeError(
-        'binary serializer serialize() must return Uint8Array or ArrayBuffer',
+        'binary codec serialize() must return Uint8Array or ArrayBuffer',
       )
     }
   } else if (typeof body !== 'string') {
     throw new TypeError(
-      'json serializer serialize() must return a string; use binary: true for bytes',
+      'codec serialize() must return a string; use binary: true for bytes',
     )
   }
   return body as WireBody
