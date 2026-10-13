@@ -26,11 +26,11 @@ const payload = (): Payload => ({
 const superjson = defineSerializer({
   name: 'superjson',
   json: {
-    output: 'preserve',
+    types: 'preserve',
     serialize: SuperJSON.stringify,
     parse: SuperJSON.parse,
     input: {
-      output: 'preserve',
+      types: 'preserve',
       serialize: SuperJSON.stringify,
       parse: SuperJSON.parse,
     },
@@ -40,11 +40,11 @@ const superjson = defineSerializer({
 const vanilla = defineSerializer({
   name: 'json',
   json: {
-    output: 'json',
+    types: 'json-parsed',
     serialize: JSON.stringify,
     parse: JSON.parse,
     input: {
-      output: 'json',
+      types: 'json-parsed',
       serialize: JSON.stringify,
       parse: JSON.parse,
     },
@@ -54,11 +54,11 @@ const vanilla = defineSerializer({
 const devalue = defineSerializer({
   name: 'devalue',
   json: {
-    output: 'preserve',
+    types: 'preserve',
     serialize: devalueStringify,
     parse: devalueParse,
     input: {
-      output: 'preserve',
+      types: 'preserve',
       serialize: devalueStringify,
       parse: devalueParse,
     },
@@ -68,12 +68,12 @@ const devalue = defineSerializer({
 const seroval = defineSerializer({
   name: 'seroval',
   json: {
-    output: 'preserve',
+    types: 'preserve',
     serialize,
     parse: deserialize,
     contentType: 'application/seroval',
     input: {
-      output: 'preserve',
+      types: 'preserve',
       serialize: (value: unknown) => JSON.stringify(toJSON(value)),
       parse: (value: string) => fromJSON(JSON.parse(value)),
     },
@@ -201,9 +201,9 @@ const cborSlot = {
 const cbor = defineSerializer({
   name: 'cbor',
   json: {
-    output: 'preserve',
+    types: 'preserve',
     ...cborSlot,
-    input: { output: 'preserve', ...cborSlot },
+    input: { types: 'preserve', ...cborSlot },
   },
 })
 

@@ -3,7 +3,7 @@ import type { JsonSerializer, WireBody, WireSerializer } from './types'
 export const DEFAULT_HEADER = 'x-hono-serialization'
 export const DEFAULT_JSON_CONTENT_TYPE = 'application/json; charset=UTF-8'
 export const BINARY_CONTENT_TYPE = 'application/octet-stream'
-export const outputHeader = (header: string) => `${header}-output`
+export const typesHeader = (header: string) => `${header}-types`
 export type Resolved = {
   serialize: (value: never) => WireBody
   parse: (data: never) => unknown
@@ -40,7 +40,7 @@ export function encode(codec: Resolved, value: unknown): WireBody {
 export function validateHeader(header: string): void {
   new Headers({
     [header]: 'test',
-    [outputHeader(header)]: 'preserve',
+    [typesHeader(header)]: 'preserve',
   })
   if (
     [

@@ -7,7 +7,7 @@ import { createClient } from 'hono-serialization/client'
 const codec = defineSerializer({
   name: 'sj',
   json: {
-    output: 'preserve',
+    types: 'preserve',
     serialize: SuperJSON.stringify,
     parse: SuperJSON.parse,
   },

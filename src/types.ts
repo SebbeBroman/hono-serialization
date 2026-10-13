@@ -2,7 +2,7 @@ import type { Hono, Schema } from 'hono'
 import type { JSONParsed } from 'hono/utils/types'
 
 export type WireBody = string | ArrayBuffer | Uint8Array
-export type OutputMode = 'preserve' | 'json' | 'unknown'
+export type CodecTypes = 'preserve' | 'json-parsed' | 'unknown'
 
 /** The discriminant makes the bytes passed to parse explicit. */
 export type WireSerializer<Value = unknown, Parsed = unknown> = (
@@ -19,9 +19,13 @@ export type WireSerializer<Value = unknown, Parsed = unknown> = (
 ) & { contentType?: string }
 
 export type JsonSerializer<Value = unknown> = WireSerializer<Value> & {
-  input?: WireSerializer & { output: 'preserve' | 'json' }
-  /** Contract for JSON RPC output. Omitted means unknown; preserve is a lossless-codec promise. */
-  output?: OutputMode
+  input?: WireSerializer & { types?: 'preserve' | 'json-parsed' }
+  /**
+   * What a round trip does to types. Defaults to `preserve`: values and
+   * types survive. `json-parsed` promises ordinary JSON conversion and
+   * `unknown` makes no promise.
+   */
+  types?: CodecTypes
 }
 
 export type Serializer<Name extends string = string> = {
@@ -41,16 +45,16 @@ type JsonInput<I> = I extends object
   ? { [K in keyof I]: K extends 'json' ? JSONParsed<I[K]> : I[K] }
   : I
 
-type DecodeOutput<O, Mode extends OutputMode> =
+type DecodeOutput<O, Types extends CodecTypes> =
   O extends SerializedOutput<infer T>
-    ? Mode extends 'preserve'
+    ? Types extends 'preserve'
       ? T
-      : Mode extends 'json'
+      : Types extends 'json-parsed'
         ? JSONParsed<T>
         : unknown
     : O
 
-type Endpoint<E, Mode extends OutputMode, Plain extends boolean> = E extends {
+type Endpoint<E, Types extends CodecTypes, Plain extends boolean> = E extends {
   input: infer I
   output: infer O
   outputFormat: infer F
@@ -58,24 +62,24 @@ type Endpoint<E, Mode extends OutputMode, Plain extends boolean> = E extends {
 }
   ? {
       input: Plain extends true ? JsonInput<I> : I
-      output: F extends 'json' ? DecodeOutput<O, Mode> : O
+      output: F extends 'json' ? DecodeOutput<O, Types> : O
       outputFormat: F
       status: St
     }
   : E
 
-type MapSchema<S, Mode extends OutputMode, Plain extends boolean> = {
-  [P in keyof S]: { [M in keyof S[P]]: Endpoint<S[P][M], Mode, Plain> }
+type MapSchema<S, Types extends CodecTypes, Plain extends boolean> = {
+  [P in keyof S]: { [M in keyof S[P]]: Endpoint<S[P][M], Types, Plain> }
 }
 export type ClientApp<
   T,
-  Mode extends OutputMode,
+  Types extends CodecTypes,
   RichInput extends boolean = false,
 > =
   T extends Hono<infer E, infer S, infer P>
     ? MapSchema<
         S,
-        Mode,
+        Types,
         RichInput extends true ? false : true
       > extends infer M extends Schema
       ? Hono<E, M, P>
@@ -84,7 +88,7 @@ export type ClientApp<
 /** A plain JSON client converts both request and response JSON values. */
 export type JsonApp<T> =
   T extends Hono<infer E, infer S, infer P>
-    ? MapSchema<S, 'json', true> extends infer M extends Schema
+    ? MapSchema<S, 'json-parsed', true> extends infer M extends Schema
       ? Hono<E, M, P>
       : never
     : never

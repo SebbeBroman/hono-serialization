@@ -23,7 +23,7 @@ const date = new Date('2024-01-15T12:00:00.000Z')
 const superjson = defineSerializer({
   name: 'superjson',
   json: {
-    output: 'preserve',
+    types: 'preserve',
     serialize: superjsonStringify,
     parse: superjsonParse,
   },
@@ -32,11 +32,11 @@ const superjson = defineSerializer({
 const superjsonIn = defineSerializer({
   name: 'superjson',
   json: {
-    output: 'preserve',
+    types: 'preserve',
     serialize: superjsonStringify,
     parse: superjsonParse,
     input: {
-      output: 'preserve',
+      types: 'preserve',
       serialize: superjsonStringify,
       parse: superjsonParse,
     },
@@ -159,16 +159,52 @@ describe('input object', () => {
   })
 })
 
-describe('input can differ from output', () => {
+describe('types defaults to preserve', () => {
+  const implicit = defineSerializer({
+    name: 'implicit',
+    json: {
+      serialize: superjsonStringify,
+      parse: superjsonParse,
+      input: { serialize: superjsonStringify, parse: superjsonParse },
+    },
+  })
+  const t = serialization(implicit)
+  const app = new Hono()
+    .use(t)
+    .get('/item', (c) => t.json(c, { createdAt: date }))
+    .post('/echo', async (c) => {
+      const body = await c.req.json<{ createdAt: unknown }>()
+      return t.json(c, { isDate: body.createdAt instanceof Date })
+    })
+
+  test('negotiated responses advertise preserve without a declared contract', async () => {
+    const res = await app.request('/item', {
+      headers: { [DEFAULT_HEADER]: 'implicit' },
+    })
+    expect(res.headers.get(`${DEFAULT_HEADER}-types`)).toBe('preserve')
+  })
+
+  test('the client revives values and sends rich request bodies', async () => {
+    const client = createClient<typeof app>('http://localhost', implicit, {
+      fetch: app.request as typeof fetch,
+    })
+    const data = await (await client.item.$get()).json()
+    expect(data.createdAt).toBeInstanceOf(Date)
+    const echoed = await (await client.echo.$post({ json: { createdAt: date } })).json()
+    expect(echoed.isDate).toBe(true)
+  })
+})
+
+describe('input can differ from the response codec', () => {
   const mixed = defineSerializer({
     name: 'js',
     json: {
-      output: 'preserve',
+      types: 'preserve',
       serialize: uneval,
       parse: (s: string) => (0, eval)(`(${s})`) as unknown,
       contentType: 'application/devalue',
       input: {
-        output: 'preserve',
+        types: 'preserve',
         serialize: superjsonStringify,
         parse: superjsonParse,
       },
@@ -183,7 +219,7 @@ describe('input can differ from output', () => {
     })
   })
 
-  test('POST body uses input pair; response uses output pair', async () => {
+  test('POST body uses the input codec; response uses the json codec', async () => {
     const client = createClient<typeof app>('http://localhost', mixed, {
       fetch: app.request as typeof fetch,
     })
@@ -199,7 +235,7 @@ describe('uneval-style json output', () => {
   const js = defineSerializer({
     name: 'js',
     json: {
-      output: 'preserve',
+      types: 'preserve',
       serialize: uneval,
       parse: (s: string) => (0, eval)(`(${s})`) as unknown,
       contentType: 'application/devalue',
@@ -226,7 +262,7 @@ describe('string serializer with private contentType', () => {
   const custom = defineSerializer({
     name: 'seroval',
     json: {
-      output: 'preserve',
+      types: 'preserve',
       serialize: serovalSerialize,
       parse: serovalDeserialize,
       contentType: 'application/seroval',
@@ -325,7 +361,7 @@ describe('custom header name', () => {
 const binary = defineSerializer({
   name: 'bin',
   json: {
-    output: 'preserve',
+    types: 'preserve',
     serialize: (value: unknown) =>
       new TextEncoder().encode(superjsonStringify(value)),
     parse: (data: string | Uint8Array) => {
@@ -336,7 +372,7 @@ const binary = defineSerializer({
     contentType: 'application/octet-stream',
     binary: true,
     input: {
-      output: 'preserve',
+      types: 'preserve',
       serialize: (value: unknown) =>
         new TextEncoder().encode(superjsonStringify(value)),
       parse: (data: string | Uint8Array) => {
@@ -412,7 +448,7 @@ describe('defineSerializer / serialization() validation', () => {
       defineSerializer({
         name: '',
         json: {
-          output: 'preserve',
+          types: 'preserve',
           serialize: JSON.stringify,
           parse: JSON.parse,
         },
@@ -431,7 +467,7 @@ describe('defineSerializer / serialization() validation', () => {
       defineSerializer({
         name: 'extra',
         json: {
-          output: 'preserve',
+          types: 'preserve',
           serialize: JSON.stringify,
           parse: JSON.parse,
         },

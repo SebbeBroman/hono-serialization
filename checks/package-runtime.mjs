@@ -14,11 +14,11 @@ const date = new Date('2024-01-01T00:00:00Z')
 const codec = defineSerializer({
   name: 'superjson',
   json: {
-    output: 'preserve',
+    types: 'preserve',
     serialize: SuperJSON.stringify,
     parse: SuperJSON.parse,
     input: {
-      output: 'preserve',
+      types: 'preserve',
       serialize: SuperJSON.stringify,
       parse: SuperJSON.parse,
     },

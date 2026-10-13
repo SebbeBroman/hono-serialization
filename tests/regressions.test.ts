@@ -14,11 +14,11 @@ const date = new Date('2024-01-15T12:00:00Z')
 const rich = defineSerializer({
   name: 'superjson',
   json: {
-    output: 'preserve',
+    types: 'preserve',
     serialize: SuperJSON.stringify,
     parse: SuperJSON.parse,
     input: {
-      output: 'preserve',
+      types: 'preserve',
       serialize: SuperJSON.stringify,
       parse: SuperJSON.parse,
     },
@@ -52,7 +52,7 @@ describe('wire regressions', () => {
     const r = await app.request('/', { headers })
     const exposed = r.headers.get('access-control-expose-headers')!
     expect(exposed).toContain('X-Other')
-    for (const suffix of ['', '-output'])
+    for (const suffix of ['', '-types'])
       expect(exposed).toContain(DEFAULT_HEADER + suffix)
   })
 
@@ -64,7 +64,7 @@ describe('wire regressions', () => {
       .get('/', (c) => t.json(c, { ok: true }))
     const r = await app.request('/', { headers })
     const exposed = r.headers.get('access-control-expose-headers')!
-    for (const suffix of ['', '-output'])
+    for (const suffix of ['', '-types'])
       expect(exposed).toContain(DEFAULT_HEADER + suffix)
   })
 
@@ -186,7 +186,7 @@ describe('client regressions', () => {
       /did not negotiate/,
     )
   })
-  test('unknown serializer and incompatible output contract fail closed', async () => {
+  test('unknown serializer and mismatched codec types fail closed', async () => {
     const client = createClient<typeof app>('http://localhost', rich, {
       fetch: (async () => new Response('{}')) as typeof fetch,
     })
@@ -198,12 +198,12 @@ describe('client regressions', () => {
         new Response('{}', {
           headers: {
             [DEFAULT_HEADER]: rich.name,
-            [`${DEFAULT_HEADER}-output`]: 'json',
+            [`${DEFAULT_HEADER}-types`]: 'json-parsed',
           },
         })) as typeof fetch,
     })
     await expect((await mismatch.item.$get()).json()).rejects.toThrow(
-      /contracts differ/,
+      /types differ/,
     )
   })
   test('plain c.json routes fail closed on the serializer client', async () => {
@@ -221,7 +221,7 @@ describe('client regressions', () => {
   test('JSON codec returns JSON-converted values', async () => {
     const codec = defineSerializer({
       name: 'json',
-      json: { output: 'json', serialize: JSON.stringify, parse: JSON.parse },
+      json: { types: 'json-parsed', serialize: JSON.stringify, parse: JSON.parse },
     })
     const t = serialization(codec)
     const plain = new Hono().use(t).get('/item', (c) => t.json(c, { date }))

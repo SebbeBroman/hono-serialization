@@ -32,13 +32,16 @@ export function validateSerializer(s: Serializer): void {
     if (codec.contentType !== undefined)
       new Headers({ 'content-type': codec.contentType })
   }
-  if (s.json.input && !['preserve', 'json'].includes(s.json.input.output)) {
-    throw new TypeError('json.input.output must be preserve or json')
+  if (
+    s.json.input &&
+    !['preserve', 'json-parsed'].includes(s.json.input.types ?? 'preserve')
+  ) {
+    throw new TypeError('json.input.types must be preserve or json-parsed')
   }
   if (
-    s.json.output !== undefined &&
-    !['preserve', 'json', 'unknown'].includes(s.json.output)
+    s.json.types !== undefined &&
+    !['preserve', 'json-parsed', 'unknown'].includes(s.json.types)
   ) {
-    throw new TypeError('json.output must be preserve, json, or unknown')
+    throw new TypeError('json.types must be preserve, json-parsed, or unknown')
   }
 }

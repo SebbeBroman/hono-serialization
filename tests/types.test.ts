@@ -19,7 +19,7 @@ import { serialization, defineSerializer, type JsonApp } from '../src/index'
 const superjson = defineSerializer({
   name: 'superjson',
   json: {
-    output: 'preserve',
+    types: 'preserve',
     serialize: superjsonStringify,
     parse: superjsonParse,
   },
@@ -28,7 +28,7 @@ const superjson = defineSerializer({
 const seroval = defineSerializer({
   name: 'seroval',
   json: {
-    output: 'preserve',
+    types: 'preserve',
     serialize: serovalSerialize,
     parse: serovalDeserialize,
   },
@@ -37,7 +37,7 @@ const seroval = defineSerializer({
 const devalue = defineSerializer({
   name: 'devalue',
   json: {
-    output: 'preserve',
+    types: 'preserve',
     serialize: devalueStringify,
     parse: devalueParse,
   },
@@ -46,7 +46,7 @@ const devalue = defineSerializer({
 const cbor = defineSerializer({
   name: 'cbor',
   json: {
-    output: 'preserve',
+    types: 'preserve',
     binary: true,
     serialize: cborEncode,
     parse: cborDecode,
@@ -113,13 +113,26 @@ describe('RPC types', () => {
 
 const jsonCodec = defineSerializer({
   name: 'json',
-  json: { output: 'json', serialize: JSON.stringify, parse: JSON.parse },
+  json: { types: 'json-parsed', serialize: JSON.stringify, parse: JSON.parse },
 })
 const unknownCodec = defineSerializer({
   name: 'custom',
-  json: { serialize: JSON.stringify, parse: JSON.parse },
+  json: {
+    types: 'unknown',
+    serialize: JSON.stringify,
+    parse: JSON.parse,
+  },
 })
-const mixed = serialization([superjson, jsonCodec, unknownCodec])
+const implicitCodec = defineSerializer({
+  name: 'implicit',
+  json: { serialize: superjsonStringify, parse: superjsonParse },
+})
+const mixed = serialization([
+  superjson,
+  implicitCodec,
+  jsonCodec,
+  unknownCodec,
+])
 const mixedApp = new Hono()
   .use(mixed)
   .get('/default', (c) => mixed.json(c, { date: new Date() }))
@@ -131,10 +144,14 @@ const mixedApp = new Hono()
   .get('/error', (c) => mixed.json(c, { error: 'bad' }, 400))
 
 describe('strict RPC contracts', () => {
-  test('lossless, JSON, and undeclared codecs have distinct response types', () => {
+  test('lossless, implicit, JSON, and unknown codecs have distinct response types', () => {
     const richClient = createClient<typeof mixedApp>(
       'http://localhost',
       superjson,
+    )
+    const implicitClient = createClient<typeof mixedApp>(
+      'http://localhost',
+      implicitCodec,
     )
     const jsonClient = createClient<typeof mixedApp>(
       'http://localhost',
@@ -145,9 +162,12 @@ describe('strict RPC contracts', () => {
       unknownCodec,
     )
     type Rich = InferResponseType<typeof richClient.default.$get>
+    type Implicit = InferResponseType<typeof implicitClient.default.$get>
     type Json = InferResponseType<typeof jsonClient.default.$get>
     type Unknown = InferResponseType<typeof unknownClient.default.$get>
     expectTypeOf<Rich>().toEqualTypeOf<{ date: Date }>()
+    // An omitted contract defaults to preserve.
+    expectTypeOf<Implicit>().toEqualTypeOf<{ date: Date }>()
     expectTypeOf<Json>().toEqualTypeOf<{ date: string }>()
     expectTypeOf<Unknown>().toEqualTypeOf<unknown>()
     type Default = Awaited<ReturnType<typeof richClient.default.$get>>
@@ -180,7 +200,7 @@ describe('strict RPC contracts', () => {
     const unrelated = defineSerializer({
       name: 'unregistered',
       json: {
-        output: 'preserve',
+        types: 'preserve',
         serialize: JSON.stringify,
         parse: JSON.parse,
       },
@@ -216,11 +236,11 @@ describe('strict RPC contracts', () => {
 const inputCodec = defineSerializer({
   name: 'input',
   json: {
-    output: 'preserve',
+    types: 'preserve',
     serialize: superjsonStringify,
     parse: superjsonParse,
     input: {
-      output: 'preserve',
+      types: 'preserve',
       serialize: superjsonStringify,
       parse: superjsonParse,
     },

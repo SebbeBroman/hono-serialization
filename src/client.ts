@@ -4,7 +4,7 @@ import type { ClientRequestOptions } from 'hono/client'
 import {
   DEFAULT_HEADER,
   encode,
-  outputHeader,
+  typesHeader,
   resolve,
   resolveInput,
   validateHeader,
@@ -13,7 +13,7 @@ import { validateSerializer } from './validation'
 import type {
   AppSerializer,
   ClientApp,
-  OutputMode,
+  CodecTypes,
   Serializer,
   WireSerializer,
 } from './types'
@@ -42,12 +42,10 @@ const wrapResponse = (
             )
           }
           if (
-            res.headers.get(outputHeader(header)) !==
-            (serializer.json.output ?? 'unknown')
+            res.headers.get(typesHeader(header)) !==
+            (serializer.json.types ?? 'preserve')
           ) {
-            throw new TypeError(
-              'server and client JSON output contracts differ',
-            )
+            throw new TypeError('server and client codec types differ')
           }
           const slot = resolve(serializer.json)
           const data = slot.binary
@@ -63,45 +61,51 @@ const wrapResponse = (
 }
 
 export type CreateClientOptions = ClientRequestOptions & { header?: string }
-type PreservingSerializer = Serializer & { json: { output: 'preserve' } }
-type ConvertingSerializer = Serializer & { json: { output: 'json' } }
+type Preserving = Serializer & { json: { types?: 'preserve' } }
+type Converting = Serializer & { json: { types: 'json-parsed' } }
+type Unknown = Serializer & { json: { types: 'unknown' } }
 type WithInput = Serializer & {
-  json: { input: WireSerializer & { output: 'preserve' } }
+  json: { input: WireSerializer & { types?: 'preserve' } }
 }
 type HonoClient<T extends Hono, Prefix extends string> = ReturnType<
   typeof hc<T, Prefix>
 >
 export type SerializerClient<
   T extends Hono,
-  Mode extends OutputMode,
+  Types extends CodecTypes,
   Prefix extends string = string,
   RichInput extends boolean = false,
-> = HonoClient<ClientApp<T, Mode, RichInput>, Prefix>
+> = HonoClient<ClientApp<T, Types, RichInput>, Prefix>
 export function createClient<T extends Hono, Prefix extends string = string>(
   baseUrl: Prefix,
-  serializer: PreservingSerializer & WithInput & AppSerializer<T>,
+  serializer: Preserving & WithInput & AppSerializer<T>,
   options?: CreateClientOptions,
 ): SerializerClient<T, 'preserve', Prefix, true>
 export function createClient<T extends Hono, Prefix extends string = string>(
   baseUrl: Prefix,
-  serializer: PreservingSerializer & AppSerializer<T>,
+  serializer: Preserving & AppSerializer<T>,
   options?: CreateClientOptions,
 ): SerializerClient<T, 'preserve', Prefix>
 export function createClient<T extends Hono, Prefix extends string = string>(
   baseUrl: Prefix,
-  serializer: ConvertingSerializer & WithInput & AppSerializer<T>,
+  serializer: Converting & WithInput & AppSerializer<T>,
   options?: CreateClientOptions,
-): SerializerClient<T, 'json', Prefix, true>
+): SerializerClient<T, 'json-parsed', Prefix, true>
 export function createClient<T extends Hono, Prefix extends string = string>(
   baseUrl: Prefix,
-  serializer: ConvertingSerializer & AppSerializer<T>,
+  serializer: Converting & AppSerializer<T>,
   options?: CreateClientOptions,
-): SerializerClient<T, 'json', Prefix>
+): SerializerClient<T, 'json-parsed', Prefix>
 export function createClient<T extends Hono, Prefix extends string = string>(
   baseUrl: Prefix,
-  serializer: WithInput & AppSerializer<T>,
+  serializer: Unknown & WithInput & AppSerializer<T>,
   options?: CreateClientOptions,
 ): SerializerClient<T, 'unknown', Prefix, true>
+export function createClient<T extends Hono, Prefix extends string = string>(
+  baseUrl: Prefix,
+  serializer: Unknown & AppSerializer<T>,
+  options?: CreateClientOptions,
+): SerializerClient<T, 'unknown', Prefix>
 export function createClient<T extends Hono, Prefix extends string = string>(
   baseUrl: Prefix,
   serializer: Serializer & AppSerializer<T>,

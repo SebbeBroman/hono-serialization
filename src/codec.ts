@@ -14,5 +14,5 @@ export type {
   JsonSerializer,
   WireSerializer,
   WireBody,
-  OutputMode,
+  CodecTypes,
 } from './types'

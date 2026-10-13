@@ -8,7 +8,7 @@ import {
   appendHeader,
   getActive,
   lookup,
-  outputHeader,
+  typesHeader,
   resolve,
   resolveInput,
   sendEncoded,
@@ -28,7 +28,7 @@ export { BINARY_CONTENT_TYPE, DEFAULT_HEADER, DEFAULT_JSON_CONTENT_TYPE }
 export type {
   JsonApp,
   JsonSerializer,
-  OutputMode,
+  CodecTypes,
   Serializer,
   WireBody,
   WireSerializer,
@@ -82,7 +82,7 @@ export function serialization<const S extends SerializerList>(
     appendHeader(responseHeaders, 'Vary', header)
     c.header('Vary', responseHeaders.get('Vary')!)
     if (c.res.headers.get(header)) {
-      for (const name of [header, outputHeader(header)]) {
+      for (const name of [header, typesHeader(header)]) {
         appendHeader(responseHeaders, 'Access-Control-Expose-Headers', name)
       }
       c.header(
