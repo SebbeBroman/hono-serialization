@@ -18,7 +18,7 @@ export type WireSerializer<Value = unknown, Parsed = unknown> = (
     }
 ) & { contentType?: string }
 
-export type FormatSerializer<Value = unknown> = WireSerializer<Value> & {
+export type JsonSerializer<Value = unknown> = WireSerializer<Value> & {
   input?: WireSerializer & { output: 'preserve' | 'json' }
   /** Contract for JSON RPC output. Omitted means unknown; preserve is a lossless-codec promise. */
   output?: OutputMode
@@ -26,12 +26,8 @@ export type FormatSerializer<Value = unknown> = WireSerializer<Value> & {
 
 export type Serializer<Name extends string = string> = {
   name: Name
-  json?: FormatSerializer
-  text?: WireSerializer<string, string>
-  html?: WireSerializer<string, string>
-  body?: WireSerializer<WireBody>
+  json: JsonSerializer
 }
-export type FormatName = 'json' | 'text' | 'html' | 'body'
 export type SerializerList = Serializer | readonly Serializer[]
 export type SerializerOf<S extends SerializerList> =
   S extends readonly Serializer[] ? S[number] : S
@@ -41,12 +37,6 @@ declare const serialized: unique symbol
 export type SerializedOutput<T, S extends Serializer = Serializer> = {
   readonly [serialized]: { value: T; serializer: S }
 }
-export type HelperOutput<T, S extends Serializer> = S extends {
-  json: FormatSerializer
-}
-  ? SerializedOutput<T, S>
-  : JSONParsed<T>
-
 type JsonInput<I> = I extends object
   ? { [K in keyof I]: K extends 'json' ? JSONParsed<I[K]> : I[K] }
   : I

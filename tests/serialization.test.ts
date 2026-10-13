@@ -69,57 +69,29 @@ describe('header negotiation', () => {
   })
 })
 
-describe('patched c.json', () => {
+describe('c.json stays ordinary Hono', () => {
   const app = new Hono()
     .use(serialization(superjson))
     .get('/item', (c) => c.json({ createdAt: date }))
 
-  test('header + c.json encodes JSON-normalized values', async () => {
+  test('header + c.json keeps JSON.stringify and no negotiation header', async () => {
     const res = await app.request('/item', {
       headers: { [DEFAULT_HEADER]: 'superjson' },
     })
-    expect(res.headers.get(DEFAULT_HEADER)).toBe('superjson')
-    const data = superjsonParse(await res.text()) as { createdAt: string }
-    expect(data.createdAt).toBe(date.toISOString())
-  })
-
-  test('no header + c.json stays JSON.stringify', async () => {
-    const res = await app.request('/item')
     expect(res.headers.get(DEFAULT_HEADER)).toBeNull()
+    expect(res.headers.get('content-type')).toMatch(/application\/json/)
     const data = await res.json()
     expect(data.createdAt).toBe(date.toISOString())
   })
 })
 
-describe('omitted slots fall back to Hono defaults', () => {
-  const textOnly = defineSerializer({
-    name: 'wrap',
-    text: {
-      serialize: (s: string) => `wrapped:${s}`,
-      parse: (s: string) => String(s).replace(/^wrapped:/, ''),
-    },
-  })
-
+describe('context methods stay untouched', () => {
   const app = new Hono()
     .use(serialization(superjson))
     .get('/hello', (c) => c.text('hello'))
     .get('/page', (c) => c.html('<p>hi</p>'))
 
-  const jsonT = serialization(textOnly)
-  const jsonApp = new Hono()
-    .use(jsonT)
-    .get('/item', (c) => jsonT.json(c, { createdAt: date }))
-
-  test('t.json stays JSON.stringify when json is omitted', async () => {
-    const res = await jsonApp.request('/item', {
-      headers: { [DEFAULT_HEADER]: 'wrap' },
-    })
-    expect(res.headers.get(DEFAULT_HEADER)).toBeNull()
-    const data = await res.json()
-    expect(data.createdAt).toBe(date.toISOString())
-  })
-
-  test('c.text() is untouched when text is omitted, even with the header', async () => {
+  test('c.text() is untouched, even with the header', async () => {
     const res = await app.request('/hello', {
       headers: { [DEFAULT_HEADER]: 'superjson' },
     })
@@ -128,75 +100,13 @@ describe('omitted slots fall back to Hono defaults', () => {
     expect(res.headers.get(DEFAULT_HEADER)).toBeNull()
   })
 
-  test('c.html() is untouched when html is omitted', async () => {
+  test('c.html() is untouched, even with the header', async () => {
     const res = await app.request('/page', {
       headers: { [DEFAULT_HEADER]: 'superjson' },
     })
     expect(await res.text()).toBe('<p>hi</p>')
     expect(res.headers.get('content-type')).toMatch(/text\/html/)
     expect(res.headers.get(DEFAULT_HEADER)).toBeNull()
-  })
-})
-
-describe('text slot', () => {
-  const wrapped = defineSerializer({
-    name: 'wrap',
-    text: {
-      serialize: (s: string) => `wrapped:${s}`,
-      parse: (s: string) => String(s).replace(/^wrapped:/, ''),
-    },
-  })
-  const t = serialization(wrapped)
-  const app = new Hono().use(t).get('/hello', (c) => t.text(c, 'hello'))
-
-  test('no header → default text', async () => {
-    const res = await app.request('/hello')
-    expect(await res.text()).toBe('hello')
-    expect(res.headers.get(DEFAULT_HEADER)).toBeNull()
-  })
-
-  test('header → serialize text and echo the name', async () => {
-    const res = await app.request('/hello', {
-      headers: { [DEFAULT_HEADER]: 'wrap' },
-    })
-    expect(res.headers.get(DEFAULT_HEADER)).toBe('wrap')
-    expect(await res.text()).toBe('wrapped:hello')
-  })
-
-  test('client res.text() parses back to the original string', async () => {
-    const client = createClient<typeof app>('http://localhost', wrapped, {
-      fetch: app.request as typeof fetch,
-    })
-    const res = await client.hello.$get()
-    expect(await res.text()).toBe('hello')
-  })
-})
-
-describe('html slot', () => {
-  const wrapped = defineSerializer({
-    name: 'wrap',
-    html: {
-      serialize: (s: string) => `<!--x-->${s}`,
-      parse: (s: string) => String(s).replace(/^<!--x-->/, ''),
-    },
-  })
-  const t = serialization(wrapped)
-  const app = new Hono().use(t).get('/page', (c) => t.html(c, '<p>hi</p>'))
-
-  test('header → serialize html', async () => {
-    const res = await app.request('/page', {
-      headers: { [DEFAULT_HEADER]: 'wrap' },
-    })
-    expect(res.headers.get(DEFAULT_HEADER)).toBe('wrap')
-    expect(await res.text()).toBe('<!--x--><p>hi</p>')
-  })
-
-  test('client res.text() parses html back', async () => {
-    const client = createClient<typeof app>('http://localhost', wrapped, {
-      fetch: app.request as typeof fetch,
-    })
-    const res = await client.page.$get()
-    expect(await res.text()).toBe('<p>hi</p>')
   })
 })
 
@@ -510,10 +420,25 @@ describe('defineSerializer / serialization() validation', () => {
     ).toThrow(/name/)
   })
 
-  test('rejects a serializer with no slots', () => {
-    expect(() => defineSerializer({ name: 'empty' })).toThrow(
-      /json, text, html, body/,
-    )
+  test('rejects a serializer without a json codec', () => {
+    expect(() =>
+      defineSerializer({ name: 'empty' } as never),
+    ).toThrow(/json codec is required/)
+  })
+
+  test('rejects unsupported slots', () => {
+    expect(() =>
+      defineSerializer({
+        name: 'extra',
+        json: {
+          output: 'preserve',
+          serialize: JSON.stringify,
+          parse: JSON.parse,
+        },
+        // @ts-expect-error text is not part of the JSON-only contract.
+        text: { serialize: String, parse: String },
+      }),
+    ).toThrow(/unsupported field "text"/)
   })
 
   test('rejects duplicate names', () => {

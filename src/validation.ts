@@ -11,12 +11,15 @@ export function validateSerializer(s: Serializer): void {
       'defineSerializer: name must be a non-empty printable header value without surrounding whitespace',
     )
   }
-  if (!s.json && !s.text && !s.html && !s.body) {
-    throw new TypeError(
-      'defineSerializer: at least one of json, text, html, body is required',
-    )
+  if (!s.json) {
+    throw new TypeError('defineSerializer: json codec is required')
   }
-  for (const slot of [s.json, s.text, s.html, s.body, s.json?.input]) {
+  for (const key of Object.keys(s)) {
+    if (key !== 'name' && key !== 'json') {
+      throw new TypeError(`defineSerializer: unsupported field "${key}"`)
+    }
+  }
+  for (const slot of [s.json, s.json.input]) {
     if (!slot) continue
     if (
       typeof slot.serialize !== 'function' ||

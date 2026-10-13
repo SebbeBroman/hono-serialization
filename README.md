@@ -2,7 +2,7 @@
 
 Opt-in serialization for [Hono](https://hono.dev) RPC. Bring your own SuperJSON, devalue, Seroval, or binary codec. No serializer is bundled.
 
-A client sends `x-hono-serialization: <name>`. The middleware encodes matching response helpers and optionally decodes JSON request bodies. Requests without that header, or with an unknown name, receive ordinary Hono output.
+A client sends `x-hono-serialization: <name>`. The middleware encodes `s.json` responses and optionally decodes JSON request bodies. Requests without that header, or with an unknown name, receive ordinary Hono output.
 
 ## Install
 
@@ -64,7 +64,7 @@ data.createdAt // Date
 
 The browser imports the codec and RPC client. The `AppType` import is erased, so it does not load `server.ts` or its middleware.
 
-`defineSerializer` is optional: `serialization({ name, json, ... })` accepts and validates a configuration directly. A separate definition is convenient when the server and client share the codec.
+`defineSerializer` is optional: `serialization({ name, json })` accepts and validates a configuration directly. A separate definition is convenient when the server and client share the codec.
 
 Put `defineSerializer` imports in shared codec files using `hono-serialization/codec`, which has no Hono runtime or middleware dependency. Create `s = serialization(codec)` only on the server. Import `AppType` with `import type` on the client. Import the client from `hono-serialization/client` and only the codec a page needs.
 
@@ -91,11 +91,11 @@ const data = await (await plain.api.item.$get()).json()
 data.createdAt // string
 ```
 
-Serializer clients reject JSON responses that omit negotiation headers or advertise a different output contract. Missing middleware, unavailable codecs, and CORS configuration errors fail explicitly instead of returning a value with the wrong static type. Mount the middleware on all JSON routes used by a serializer client, including JSON error handlers.
+Serializer clients reject JSON responses that omit negotiation headers or advertise a different output contract. Missing middleware, unavailable codecs, and CORS configuration errors fail explicitly instead of returning a value with the wrong static type. Mount the middleware on all JSON routes used by a serializer client, including JSON error handlers, and serve those routes with `s.json`.
 
-`c.json` retains Hono's ordinary `JSONParsed` types. When the middleware patches it, values are normalized to JSON **before** codec encoding, so a Date still arrives as a string. Use `s.json` to preserve rich values.
+`c.json`, `c.text`, `c.html`, and the rest of the context keep Hono's ordinary behavior. The middleware does not patch them. Routes served with `c.json` always return ordinary JSON: stock `hc` and `hc<JsonApp<typeof app>>` read them, while a serializer client fails closed on them. Use `s.json` for routes that participate in serialization.
 
-`s.json`, `s.text`, and `s.body` default to status **200**, even after `c.status(...)`. Pass another status explicitly; numeric and `{ status: ... }` arguments preserve the literal RPC status. Body-producing helpers reject contentless statuses at compile time. `s.text` exposes `string`, and `s.body` does not claim the encoded bytes are the original input value.
+`s.json` defaults to status **200**, even after `c.status(...)`. Pass another status explicitly; numeric and `{ status: ... }` arguments preserve the literal RPC status. `s.json` rejects contentless statuses (204, 304) at compile time.
 
 ## Request bodies
 
@@ -128,9 +128,7 @@ Never evaluate request bodies with `eval`, Seroval's `deserialize`, or a devalue
 
 ## Wire formats
 
-Each of `json`, `text`, `html`, and `body` is optional. Omitted slots use Hono's default response. Text and HTML decoders must return strings.
-
-A text codec returns a string, and `parse` receives a string. A binary codec must explicitly set `binary: true`, return `Uint8Array` or `ArrayBuffer`, and accept `Uint8Array` in `parse`. MIME types do not imply binary behavior.
+The codec serializes to a string or to bytes and parses the same shape back. A text codec returns a string, and `parse` receives a string. A binary codec must explicitly set `binary: true`, return `Uint8Array` or `ArrayBuffer`, and accept `Uint8Array` in `parse`. MIME types do not imply binary behavior.
 
 ```ts
 import { encode, decode } from 'cbor-x'
@@ -147,9 +145,11 @@ const cbor = defineSerializer({
 })
 ```
 
+Binary codecs such as CBOR work through the same JSON slot: negotiation, request decoding, and client types behave identically; only the wire representation differs.
+
 Set `contentType` to the MIME type of the wire representation. JSON-shaped strings default to `application/json`; binary codecs default to `application/octet-stream`. JavaScript-shaped output should use a private MIME type such as `application/seroval`, rather than `application/javascript`. Invalid codec output throws instead of being coerced into an empty body.
 
-The response advertises the codec name, the actual encoded slot, and the JSON output contract. Decoding uses those declarations rather than guessing from Content-Type. Response clones and per-call fetch implementations retain decoding. The `body` slot exposes raw wire bytes; decode them explicitly with the codec when needed. `json`, `text`, `arrayBuffer`, and `bytes` share a cached body; `text()` on an encoded JSON response returns its raw wire text.
+The response advertises the codec name and the JSON output contract. Decoding uses those declarations rather than guessing from Content-Type. Response clones and per-call fetch implementations retain decoding. `json`, `text`, `arrayBuffer`, and `bytes` share a cached body; `text()` on an encoded JSON response returns its raw wire text.
 
 ## Several codecs and custom headers
 
@@ -170,7 +170,7 @@ const s = serialization(superjson, { header: 'x-my-serde' })
 const client = createClient<AppType>(url, superjson, { header: 'x-my-serde' })
 ```
 
-For CORS, allow the negotiation request header in preflight. Encoded responses expose the negotiation header and its `-format` and `-output` companions. The middleware adds the configured header to `Vary` on encoded and ordinary responses while preserving existing entries.
+For CORS, allow the negotiation request header in preflight. Encoded responses expose the negotiation header and its `-output` companion. The middleware adds the configured header to `Vary` on encoded and ordinary responses while preserving existing entries.
 
 `createClient` accepts Hono client options, including async headers and per-call fetch overrides. It always sets the negotiation header on the outgoing request. `$url`, `$path`, and `$ws` retain their Hono behavior. For private MIME types, use the wrapped `res.json()`; Hono's `parseResponse()` selects a parser by Content-Type.
 

@@ -1,7 +1,7 @@
 import type { Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
-import type { FormatName, Serializer } from './types'
-import { encode, formatHeader, outputHeader, type Resolved } from './wire'
+import type { Serializer } from './types'
+import { encode, outputHeader, type Resolved } from './wire'
 import { validateSerializer } from './validation'
 export * from './wire'
 
@@ -58,7 +58,6 @@ export const sendEncoded = (
   slot: Resolved,
   header: string,
   serializer: Serializer,
-  format: FormatName,
 ): Response => {
   const body = encode(slot, value)
   const payload = body instanceof Uint8Array ? new Uint8Array(body) : body
@@ -75,16 +74,8 @@ export const sendEncoded = (
   }
   if (slot.contentType) res.headers.set('Content-Type', slot.contentType)
   res.headers.set(header, serializer.name)
-  res.headers.set(formatHeader(header), format)
-  if (format === 'json')
-    res.headers.set(outputHeader(header), serializer.json?.output ?? 'unknown')
-  else res.headers.delete(outputHeader(header))
+  res.headers.set(outputHeader(header), serializer.json.output ?? 'unknown')
   appendHeader(res.headers, 'Access-Control-Expose-Headers', header)
-  appendHeader(
-    res.headers,
-    'Access-Control-Expose-Headers',
-    formatHeader(header),
-  )
   appendHeader(
     res.headers,
     'Access-Control-Expose-Headers',

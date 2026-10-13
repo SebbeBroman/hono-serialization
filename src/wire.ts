@@ -2,10 +2,7 @@ import type { Serializer, WireBody, WireSerializer } from './types'
 
 export const DEFAULT_HEADER = 'x-hono-serialization'
 export const DEFAULT_JSON_CONTENT_TYPE = 'application/json; charset=UTF-8'
-export const DEFAULT_TEXT_CONTENT_TYPE = 'text/plain; charset=UTF-8'
-export const DEFAULT_HTML_CONTENT_TYPE = 'text/html; charset=UTF-8'
 export const BINARY_CONTENT_TYPE = 'application/octet-stream'
-export const formatHeader = (header: string) => `${header}-format`
 export const outputHeader = (header: string) => `${header}-output`
 export type Resolved = {
   serialize: (value: never) => WireBody
@@ -38,7 +35,7 @@ export function encode(slot: Resolved, value: unknown): WireBody {
     }
   } else if (typeof body !== 'string') {
     throw new TypeError(
-      'text serializer serialize() must return a string; use binary: true for bytes',
+      'json serializer serialize() must return a string; use binary: true for bytes',
     )
   }
   return body as WireBody
@@ -47,7 +44,6 @@ export function encode(slot: Resolved, value: unknown): WireBody {
 export function validateHeader(header: string): void {
   new Headers({
     [header]: 'test',
-    [formatHeader(header)]: 'json',
     [outputHeader(header)]: 'preserve',
   })
   if (

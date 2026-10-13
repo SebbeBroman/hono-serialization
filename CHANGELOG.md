@@ -9,9 +9,10 @@ The project is named **hono-serialization**. This release focuses on Hono.
 - Ship ESM only, with one JavaScript and declaration format for every entry point.
 
 - Add a runtime-independent `/codec` entry and separate client dependencies from server middleware in ESM output.
-- Encode via Hono's unpatched response constructor; body codecs no longer recurse or re-encode another slot's wire output.
+- Support the JSON wire slot only. SuperJSON, devalue, Seroval, and binary codecs such as CBOR work through it, including binary wire formats.
+- Leave Hono's context methods untouched. `s.json(c, data)` produces negotiated responses; `c.json` keeps ordinary behavior and unnegotiated requests fall back to it.
 - Add `Vary` for negotiation on both encoded and ordinary responses.
-- Declare response format explicitly, including custom MIME types; expose all protocol headers through CORS.
+- Declare the JSON output contract on the wire; expose all protocol headers through CORS.
 - Preserve decoding for cloned responses and per-call fetch overrides.
 - Reject invalid serializer output rather than silently coercing it to empty bytes.
 - Cache decoded request JSON and protect outgoing negotiation headers.
@@ -24,8 +25,7 @@ The project is named **hono-serialization**. This release focuses on Hono.
 - Input codecs require `input.output: 'preserve' | 'json'`.
 - Binary codecs require `binary: true`; a binary MIME type no longer selects the parser input type.
 - Use `createClient` for negotiated app types. Use `hc<JsonApp<typeof app>>` for ordinary JSON clients.
-- Serializer clients reject unnegotiated JSON responses instead of silently falling back. Mount middleware on their JSON endpoints and JSON error handlers.
-- Patched `c.json` now normalizes values to ordinary JSON before encoding; use `s.json` for rich values.
-- Helpers default explicitly to status 200. Supply non-200 statuses directly instead of relying on `c.status`.
-- Standalone context helpers are replaced by helpers on the middleware instance, so their RPC types carry the registered codec definitions.
+- Serializer clients reject unnegotiated JSON responses instead of silently falling back. Serve their routes with `s.json`, mount the middleware, and check CORS exposure.
+- `s.json` defaults explicitly to status 200. Supply non-200 statuses directly instead of relying on `c.status`.
+- Standalone context helpers are replaced by `s.json` on the middleware instance, so its RPC types carry the registered codec definitions.
 - Minimum supported Hono version is 4.13.13.

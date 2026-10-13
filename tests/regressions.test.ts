@@ -28,40 +28,6 @@ const headers = { [DEFAULT_HEADER]: rich.name }
 const fetchOf = (app: Hono) => app.request as typeof fetch
 
 describe('wire regressions', () => {
-  test('body slot neither recurses nor re-encodes another slot', async () => {
-    let bodyCalls = 0
-    const codec = defineSerializer({
-      name: 'all',
-      json: {
-        output: 'preserve',
-        serialize: SuperJSON.stringify,
-        parse: SuperJSON.parse,
-      },
-      body: {
-        serialize: (value) => {
-          bodyCalls++
-          return `body:${String(value)}`
-        },
-        parse: (value: string) => value,
-      },
-    })
-    const t = serialization(codec)
-    const app = new Hono()
-      .use(t)
-      .get('/body', (c) => t.body(c, 'hello'))
-      .get('/json', (c) => t.json(c, { date }))
-    const r = await app.request('/body', {
-      headers: { [DEFAULT_HEADER]: 'all' },
-    })
-    expect(r.status).toBe(200)
-    expect(await r.text()).toBe('body:hello')
-    const client = createClient<typeof app>('http://localhost', codec, {
-      fetch: fetchOf(app),
-    })
-    expect((await (await client.json.$get()).json()).date).toEqual(date)
-    expect(bodyCalls).toBe(1)
-  })
-
   test.each([undefined, 'superjson', 'unknown'])(
     'Vary applies with header %s and preserves existing entries',
     async (name) => {
@@ -78,56 +44,32 @@ describe('wire regressions', () => {
   )
 
   test('CORS exposes all protocol headers even when it runs after serialization', async () => {
+    const t = serialization(rich)
     const app = new Hono()
-      .use(serialization(rich))
+      .use(t)
       .use(cors({ exposeHeaders: ['X-Other'] }))
-      .get('/', (c) => c.json({ ok: true }))
+      .get('/', (c) => t.json(c, { ok: true }))
     const r = await app.request('/', { headers })
     const exposed = r.headers.get('access-control-expose-headers')!
     expect(exposed).toContain('X-Other')
-    for (const suffix of ['', '-format', '-output'])
+    for (const suffix of ['', '-output'])
       expect(exposed).toContain(DEFAULT_HEADER + suffix)
   })
 
   test('credentialed CORS explicitly exposes protocol headers alongside a wildcard', async () => {
+    const t = serialization(rich)
     const app = new Hono()
-      .use(serialization(rich))
+      .use(t)
       .use(cors({ credentials: true, exposeHeaders: ['*'] }))
-      .get('/', (c) => c.json({ ok: true }))
+      .get('/', (c) => t.json(c, { ok: true }))
     const r = await app.request('/', { headers })
     const exposed = r.headers.get('access-control-expose-headers')!
-    for (const suffix of ['', '-format', '-output'])
+    for (const suffix of ['', '-output'])
       expect(exposed).toContain(DEFAULT_HEADER + suffix)
   })
 
-  test('custom MIME types select the actual text/html slot', async () => {
-    const codec = defineSerializer({
-      name: 'strings',
-      text: {
-        serialize: (s) => `text:${s}`,
-        parse: (s: string) => s.slice(5),
-        contentType: 'application/private',
-      },
-      html: {
-        serialize: (s) => `html:${s}`,
-        parse: (s: string) => s.slice(5),
-        contentType: 'application/private',
-      },
-    })
-    const t = serialization(codec)
-    const app = new Hono()
-      .use(t)
-      .get('/text', (c) => t.text(c, 'hello'))
-      .get('/html', (c) => t.html(c, '<p>hello</p>'))
-    const client = createClient<typeof app>('http://localhost', codec, {
-      fetch: fetchOf(app),
-    })
-    expect(await (await client.text.$get()).text()).toBe('hello')
-    expect(await (await client.html.$get()).text()).toBe('<p>hello</p>')
-  })
-
   test.each([{}, undefined, 123, new Uint8Array([1])])(
-    'invalid text output fails rather than silently corrupting the body (%s)',
+    'invalid json output fails rather than silently corrupting the body (%s)',
     async (value) => {
       const codec = {
         name: 'invalid',
@@ -151,10 +93,11 @@ describe('wire regressions', () => {
       name: 'invalid',
       json: { binary: true, serialize: () => 'bad', parse: () => null },
     } as unknown as Serializer
+    const t = serialization(codec)
     const app = new Hono()
-      .use(serialization(codec))
+      .use(t)
       .onError((e) => new Response(e.message, { status: 500 }))
-      .get('/', (c) => c.json({}))
+      .get('/', (c) => t.json(c, {}))
     expect(
       (await app.request('/', { headers: { [DEFAULT_HEADER]: 'invalid' } }))
         .status,
@@ -255,7 +198,6 @@ describe('client regressions', () => {
         new Response('{}', {
           headers: {
             [DEFAULT_HEADER]: rich.name,
-            [`${DEFAULT_HEADER}-format`]: 'json',
             [`${DEFAULT_HEADER}-output`]: 'json',
           },
         })) as typeof fetch,
@@ -264,12 +206,17 @@ describe('client regressions', () => {
       /contracts differ/,
     )
   })
-  test('c.json actually returns the JSONParsed values its types promise', async () => {
+  test('plain c.json routes fail closed on the serializer client', async () => {
     const plain = new Hono().use(t).get('/item', (c) => c.json({ date }))
-    const r = await createClient<typeof plain>('http://localhost', rich, {
+    const client = createClient<typeof plain>('http://localhost', rich, {
       fetch: fetchOf(plain),
-    }).item.$get()
-    expect((await r.json()).date).toBe(date.toISOString())
+    })
+    await expect((await client.item.$get()).json()).rejects.toThrow(
+      /did not negotiate/,
+    )
+    // The untouched context method still serves ordinary JSON clients.
+    const stock = await plain.request('/item', { headers })
+    expect((await stock.json()).date).toBe(date.toISOString())
   })
   test('JSON codec returns JSON-converted values', async () => {
     const codec = defineSerializer({
